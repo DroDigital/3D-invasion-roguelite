@@ -9,6 +9,7 @@ export const WAVE_CONFIG = {
   clusterMin: 2,
   clusterMax: 4,
   spawnRadius: 6,
-  hpGrowthPerWave: 0.12,
+  /** Enemy health multiplies by this every wave. */
+  hpGrowthPerWave: 1.16,
   alien: 'scout_pod',
 } as const;

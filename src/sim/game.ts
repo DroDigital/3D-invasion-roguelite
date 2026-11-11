@@ -1,14 +1,17 @@
 import { ALIENS, alienIndex } from '../data/aliens';
 import { CITY_MAX_HEALTH } from '../data/cities';
 import { WAVE_CONFIG } from '../data/waves';
-import { weaponById } from '../data/weapons';
+import { PROGRESSION, xpForLevel } from '../data/progression';
+import type { ActionDef } from '../data/types';
 import type { Rng } from '../core/rng';
 import { RunRng } from '../core/rng';
+import { Build, matches } from './build';
 import { CityState } from './cities';
 import { ENEMY_APPROACH, ENEMY_SIEGE, EnemyPool } from './enemies';
+import { Offer, rollOffers, rollStartingWeapons } from './offers';
 import { ProjectilePool } from './projectiles';
 import { selectTargets } from './targeting';
-import { Arsenal, nearestEmitter, tierOf, updateEmitters } from './weapons';
+import { Arsenal, nearestEmitter, updateEmitters } from './weapons';
 
 export const STEP = 1 / 60;
 /** Nothing flies lower than this; paths that would cut through the planet slide around it. */
@@ -20,6 +23,8 @@ export const FX_HIT = 0;
 export const FX_EXPLOSION = 1;
 export const FX_MUZZLE = 2;
 export const FX_CITY_HIT = 3;
+export const FX_BLAST = 4;
+export const FX_CRIT = 5;
 const FX_CAP = 256;
 const FX_STRIDE = 4;
 
@@ -32,6 +37,9 @@ export class Game {
   readonly enemies = new EnemyPool();
   readonly projectiles = new ProjectilePool();
   readonly arsenal = new Arsenal();
+  readonly build = new Build();
+  /** Lowest health each city has reached; population only falls with new lows. */
+  private lowWater = new Float32Array(this.cities.count).fill(CITY_MAX_HEALTH);
   /** Sieging enemies per city, rebuilt every step. */
   readonly siege = new Uint16Array(this.cities.count);
 
@@ -39,6 +47,19 @@ export class Game {
   wave = 0;
   time = 0;
   kills = 0;
+
+  xp = 0;
+  level = 1;
+  xpNeeded = xpForLevel(1);
+  /** While set, the sim is paused waiting for the player to pick one. */
+  offer: Offer[] | null = null;
+  offerKind: 'start' | 'levelup' = 'start';
+  rerolls: number = PROGRESSION.rerolls;
+  banishes: number = PROGRESSION.banishes;
+  private pendingLevels = 0;
+  private banished = new Set<string>();
+  private offerRng: Rng;
+  private combatRng: Rng;
   private phaseTimer: number = WAVE_CONFIG.firstDelay;
   private toSpawn = 0;
   private spawnTimer = 0;
@@ -57,7 +78,9 @@ export class Game {
   constructor(seed: string) {
     this.rng = new RunRng(seed);
     this.waveRng = this.rng.stream('waves');
-    this.arsenal.add(weaponById('railgun_sat'));
+    this.offerRng = this.rng.stream('offers');
+    this.combatRng = this.rng.stream('combat');
+    this.offer = rollStartingWeapons(this.offerRng, PROGRESSION.choices);
   }
 
   get hostiles(): number {
@@ -79,7 +102,7 @@ export class Game {
   }
 
   step(dt: number): void {
-    if (this.phase === 'gameover') return;
+    if (this.phase === 'gameover' || this.offer) return;
     this.time += dt;
     this.updateWaves(dt);
     this.updateEnemies(dt);
@@ -100,6 +123,8 @@ export class Game {
         this.spawnTimer = 0;
         this.clusterLeft = 0;
         this.phase = 'spawning';
+        const wt = this.build.waveTriggers;
+        for (let k = 0; k < wt.length; k++) this.runAction(wt[k].action, -1, 0, 0, 0);
       }
     } else if (this.phase === 'spawning') {
       this.spawnTimer -= dt;
@@ -140,7 +165,7 @@ export class Game {
     const city = this.pickCity(x, y, z, r);
     if (city < 0) return;
     const def = alienIndex(WAVE_CONFIG.alien);
-    const hp = ALIENS[def].hp * (1 + WAVE_CONFIG.hpGrowthPerWave * (this.wave - 1));
+    const hp = ALIENS[def].hp * Math.pow(WAVE_CONFIG.hpGrowthPerWave, this.wave - 1);
     this.enemies.spawn(def, x, y, z, hp, city);
   }
 
@@ -187,6 +212,7 @@ export class Game {
     const e = this.enemies;
     const c = this.cities;
     this.siege.fill(0);
+    if (this.build.cityRegen > 0) this.healCities(this.build.cityRegen * dt);
     for (let i = 0; i < e.high; i++) {
       if (!e.alive[i]) continue;
       if (e.flash[i] > 0) e.flash[i] -= dt;
@@ -202,7 +228,7 @@ export class Game {
 
       if (e.state[i] === ENEMY_SIEGE) {
         this.siege[city]++;
-        this.damageCity(city, def.roleParams.siegeDps * dt);
+        this.damageCity(city, def.roleParams.siegeDps * dt * (1 - this.build.cityArmor));
         continue;
       }
 
@@ -244,7 +270,12 @@ export class Game {
     if (c.health[city] <= 0) return;
     const d = Math.min(dmg, c.health[city]);
     c.health[city] -= d;
-    c.population[city] = Math.max(0, c.population[city] - (c.maxPopulation[city] * d) / CITY_MAX_HEALTH);
+    // Healing restores defences, not the dead: only new lows cost population.
+    if (c.health[city] < this.lowWater[city]) {
+      const lost = this.lowWater[city] - c.health[city];
+      this.lowWater[city] = c.health[city];
+      c.population[city] = Math.max(0, c.population[city] - (c.maxPopulation[city] * lost) / CITY_MAX_HEALTH);
+    }
     if (c.health[city] <= 0.0001) {
       c.health[city] = 0;
       c.population[city] = 0;
@@ -253,18 +284,122 @@ export class Game {
     }
   }
 
+  private healCities(amount: number): void {
+    const c = this.cities;
+    for (let i = 0; i < c.count; i++) {
+      if (c.health[i] > 0 && c.health[i] < CITY_MAX_HEALTH) c.health[i] = Math.min(CITY_MAX_HEALTH, c.health[i] + amount);
+    }
+  }
+
+  /** Run a trigger action. `weapon` is the slot that caused it (-1 for none). */
+  private runAction(a: ActionDef, weapon: number, x: number, y: number, z: number): void {
+    if (a.kind === 'healCities') this.healCities(a.amount);
+    else if (a.kind === 'xp') this.gainXp(a.amount);
+    else if (a.kind === 'explode') {
+      const w = this.arsenal.weapons[weapon];
+      if (!w) return;
+      const e = this.enemies;
+      const r2 = a.radius * a.radius;
+      const dmg = w.stats.damage * a.damageMul;
+      this.emitFx(FX_BLAST, x, y, z);
+      for (let j = 0; j < e.high; j++) {
+        if (!e.alive[j]) continue;
+        const dx = e.x[j] - x;
+        const dy = e.y[j] - y;
+        const dz = e.z[j] - z;
+        if (dx * dx + dy * dy + dz * dz <= r2) this.damageEnemy(j, dmg, weapon);
+      }
+    }
+  }
+
+  private gainXp(amount: number): void {
+    this.xp += amount * this.build.xpGain;
+    while (this.xp >= this.xpNeeded) {
+      this.xp -= this.xpNeeded;
+      this.level++;
+      this.xpNeeded = xpForLevel(this.level);
+      this.pendingLevels++;
+    }
+    if (!this.offer && this.pendingLevels > 0) this.openLevelUp();
+  }
+
+  private openLevelUp(): void {
+    while (this.pendingLevels > 0) {
+      this.pendingLevels--;
+      const o = rollOffers(this.offerRng, PROGRESSION.choices, this.arsenal, this.build, this.banished);
+      if (o.length > 0) {
+        this.offer = o;
+        this.offerKind = 'levelup';
+        return;
+      }
+    }
+  }
+
+  // ---- player choices (the only inputs to the sim so far) ----
+
+  choose(i: number): void {
+    const o = this.offer?.[i];
+    if (!o) return;
+    if (o.kind === 'weapon') this.arsenal.add(o.weapon);
+    else if (o.kind === 'tier') {
+      const w = this.arsenal.weapons[o.slot];
+      w.tier = o.toTier;
+      updateEmitters(w, 0);
+    } else this.build.add(o.upgrade);
+    this.build.recompute(this.arsenal.weapons);
+    this.offer = null;
+    this.openLevelUp();
+  }
+
+  reroll(): void {
+    if (!this.offer || this.offerKind !== 'levelup' || this.rerolls <= 0) return;
+    const o = rollOffers(this.offerRng, PROGRESSION.choices, this.arsenal, this.build, this.banished);
+    if (o.length === 0) return;
+    this.rerolls--;
+    this.offer = o;
+  }
+
+  /** Remove an option from the pool for the rest of the run and replace its card. */
+  banish(i: number): void {
+    const o = this.offer?.[i];
+    if (!o || this.offerKind !== 'levelup' || this.banishes <= 0 || o.kind === 'tier') return;
+    this.banishes--;
+    this.banished.add(o.key);
+    const keep = this.offer!.filter((_, j) => j !== i).map((x) => x.key);
+    const repl = rollOffers(this.offerRng, 1, this.arsenal, this.build, this.banished, keep);
+    if (repl.length > 0) this.offer![i] = repl[0];
+    else this.offer!.splice(i, 1);
+    if (this.offer!.length === 0) {
+      this.offer = null;
+      this.openLevelUp();
+    }
+  }
+
   private damageEnemy(i: number, dmg: number, weapon: number): void {
     const e = this.enemies;
+    if (!e.alive[i]) return;
     const w = this.arsenal.weapons[weapon];
     const dealt = Math.min(dmg, e.hp[i]);
     e.hp[i] -= dmg;
     e.flash[i] = 0.08;
     if (w) w.damageDealt += dealt;
     if (e.hp[i] <= 0) {
+      const x = e.x[i];
+      const y = e.y[i];
+      const z = e.z[i];
+      const xp = ALIENS[e.def[i]].xp;
       this.kills++;
       if (w) w.kills++;
-      this.emitFx(FX_EXPLOSION, e.x[i], e.y[i], e.z[i]);
+      this.emitFx(FX_EXPLOSION, x, y, z);
       e.kill(i);
+      if (w) {
+        const kt = this.build.killTriggers;
+        for (let k = 0; k < kt.length; k++) {
+          const t = kt[k];
+          if (matches(t.where, w.def.tags) && this.combatRng.next() < t.chance) this.runAction(t.action, weapon, x, y, z);
+        }
+      }
+      this.gainXp(xp);
     } else {
       this.emitFx(FX_HIT, e.x[i], e.y[i], e.z[i]);
     }
@@ -278,7 +413,7 @@ export class Game {
     const ws = this.arsenal.weapons;
     for (let s = 0; s < ws.length; s++) {
       const w = ws[s];
-      const t = tierOf(w);
+      const t = w.stats;
       updateEmitters(w, dt);
       w.cooldown -= dt;
       if (w.cooldown > 0) continue;
@@ -307,7 +442,7 @@ export class Game {
         p.dx[pi] = dx * inv;
         p.dy[pi] = dy * inv;
         p.dz[pi] = dz * inv;
-        p.speed[pi] = t.projectileSpeed ?? 4;
+        p.speed[pi] = t.projectileSpeed;
         p.damage[pi] = t.damage;
         p.life[pi] = 6;
         p.target[pi] = ti;
@@ -334,7 +469,13 @@ export class Game {
         const dist = Math.hypot(dx, dy, dz);
         if (dist <= move + HIT_RADIUS) {
           e.pending[ti] -= p.damage[i];
-          this.damageEnemy(ti, p.damage[i], p.weapon[i]);
+          const w = this.arsenal.weapons[p.weapon[i]];
+          let dmg = p.damage[i];
+          if (w && w.stats.critChance > 0 && this.combatRng.next() < w.stats.critChance) {
+            dmg *= w.stats.critMult;
+            this.emitFx(FX_CRIT, e.x[ti], e.y[ti], e.z[ti]);
+          }
+          this.damageEnemy(ti, dmg, p.weapon[i]);
           p.kill(i);
           continue;
         }
@@ -367,7 +508,7 @@ export class Game {
 
   /** Cheap state digest for determinism tests. */
   digest(): number {
-    let h = this.wave * 73856093 + this.kills * 19349663;
+    let h = this.wave * 73856093 + this.kills * 19349663 + this.level * 83492791;
     const e = this.enemies;
     for (let i = 0; i < e.high; i++) {
       if (!e.alive[i]) continue;

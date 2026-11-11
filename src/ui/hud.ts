@@ -55,6 +55,11 @@ export class Hud {
   private gameover: HTMLElement;
   private gameoverBody: HTMLElement;
   private overShown = false;
+  private level: Cell;
+  private xpFill: HTMLElement;
+  private shownXp = -1;
+  private systemsRows: HTMLElement;
+  private systemsKey = '';
 
   constructor(root: HTMLElement, private game: Game, seed: string, onCity: (i: number) => void) {
     const top = h('div', 'panel');
@@ -100,6 +105,21 @@ export class Hud {
     this.arsenalRows = h('div', 'rows');
     arsenal.append(this.arsenalRows);
 
+    const systems = h('div', 'panel');
+    systems.id = 'systems';
+    systems.append(h('h2', undefined, 'SYSTEMS'));
+    this.systemsRows = h('div', 'rows');
+    systems.append(this.systemsRows);
+
+    const xp = h('div');
+    xp.id = 'xpbar';
+    const lv = h('span', 'lv');
+    this.level = new Cell(lv);
+    const track = h('div', 'track');
+    this.xpFill = h('i');
+    track.append(this.xpFill);
+    xp.append(lv, track);
+
     this.banner = h('div');
     this.banner.id = 'banner';
 
@@ -119,7 +139,10 @@ export class Hud {
 
     const hint = h('div', 'panel', 'DRAG: ROTATE  //  SCROLL: ZOOM  //  CLICK CITY: LOCATE');
     hint.id = 'hint';
-    root.append(top, list, arsenal, this.banner, hint, this.gameover);
+    const right = h('div');
+    right.id = 'rightcol';
+    right.append(arsenal, systems);
+    root.append(top, list, right, xp, this.banner, hint, this.gameover);
   }
 
   update(fps: number, now: number): void {
@@ -154,7 +177,26 @@ export class Hud {
 
     this.updateArsenal();
 
-    if (g.wave !== this.bannerWave) {
+    this.level.set(`LV ${g.level}`);
+    const xpf = Math.round((g.xp / g.xpNeeded) * 200);
+    if (xpf !== this.shownXp) {
+      this.shownXp = xpf;
+      this.xpFill.style.transform = `scaleX(${xpf / 200})`;
+    }
+    let sk = '';
+    for (const u of g.build.owned) sk += `${u.id}${g.build.stacksOf(u.id)}`;
+    if (sk !== this.systemsKey) {
+      this.systemsKey = sk;
+      this.systemsRows.textContent = '';
+      if (g.build.owned.length === 0) this.systemsRows.append(h('div', 'empty-slot', '-- NO UPGRADES --'));
+      for (const u of g.build.owned) {
+        const row = h('div', 'sys', u.name.toUpperCase());
+        row.append(h('b', undefined, `x${g.build.stacksOf(u.id)}`));
+        this.systemsRows.append(row);
+      }
+    }
+
+    if (g.wave !== this.bannerWave && g.wave > 0) {
       this.bannerWave = g.wave;
       this.banner.textContent = `WAVE ${g.wave} INBOUND`;
       this.banner.classList.add('on');
@@ -175,6 +217,7 @@ export class Hud {
       for (let i = 0; i < c.count; i++) if (c.health[i] <= 0) lost++;
       this.gameoverBody.append(
         line('WAVE REACHED', String(g.wave)),
+        line('LEVEL', String(g.level)),
         line('TIME SURVIVED', fmtTime(g.time)),
         line('HOSTILES DESTROYED', String(g.kills)),
         line('CITIES LOST', `${lost} / ${c.count}`),

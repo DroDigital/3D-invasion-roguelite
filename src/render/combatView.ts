@@ -23,6 +23,7 @@ import type { Game } from '../sim/game';
 import { MAX_PROJECTILES } from '../sim/projectiles';
 import { MAX_EMITTERS, tierOf } from '../sim/weapons';
 
+
 const FWD = new Vector3(0, 0, 1);
 const m = new Matrix4();
 const q = new Quaternion();
@@ -31,6 +32,10 @@ const d = new Vector3();
 const s = new Vector3();
 const ENEMY_COLOR = new Color(0xc23cff);
 const FLASH_COLOR = new Color(4, 4, 4);
+const SAT_COLOR = new Color(0xb8c4d0);
+const PLATFORM_COLOR = new Color(0xd0a070);
+const GROUND_COLOR = new Color(0x8fd08f);
+const col = new Color();
 
 /** Placeholder alien hull: a faceted dart, nose along +Z. Sourced hulls replace it in milestone 5. */
 function podGeometry(): BufferGeometry {
@@ -74,14 +79,14 @@ export class CombatView {
     const bolt = new BoxGeometry(0.005, 0.005, 0.06);
     this.shots = new InstancedMesh(
       bolt,
-      new MeshBasicMaterial({ color: new Color(3.0, 2.2, 0.8), blending: AdditiveBlending, depthWrite: false }),
+      new MeshBasicMaterial({ blending: AdditiveBlending, depthWrite: false }),
       MAX_PROJECTILES,
     );
     this.shots.instanceMatrix.setUsage(DynamicDrawUsage);
 
     this.sats = new InstancedMesh(
       satelliteGeometry(),
-      new MeshLambertMaterial({ color: 0xb8c4d0, flatShading: true }),
+      new MeshLambertMaterial({ flatShading: true }),
       MAX_EMITTERS * 6,
     );
     this.sats.instanceMatrix.setUsage(DynamicDrawUsage);
@@ -144,12 +149,19 @@ export class CombatView {
       p.set(pr.x[i], pr.y[i], pr.z[i]);
       d.set(pr.dx[i], pr.dy[i], pr.dz[i]);
       q.setFromUnitVectors(FWD, d);
-      s.setScalar(1);
+      const shot = g.arsenal.weapons[pr.weapon[i]]?.def.shot;
+      if (shot) {
+        s.set(shot.width, shot.width, shot.length);
+        col.setRGB(shot.color[0], shot.color[1], shot.color[2]);
+      } else s.setScalar(1);
       m.compose(p, q, s);
-      this.shots.setMatrixAt(n++, m);
+      this.shots.setMatrixAt(n, m);
+      this.shots.setColorAt(n, col);
+      n++;
     }
     this.shots.count = n;
     this.shots.instanceMatrix.needsUpdate = true;
+    if (this.shots.instanceColor) this.shots.instanceColor.needsUpdate = true;
 
     n = 0;
     const ws = g.arsenal.weapons;
@@ -161,12 +173,16 @@ export class CombatView {
         // Barrels point away from the planet.
         d.copy(p).normalize();
         q.setFromUnitVectors(FWD, d);
-        s.setScalar(1.3);
+        const deploy = ws[w].def.deploy;
+        s.setScalar(deploy === 'platform' ? 2.6 : deploy === 'groundBattery' ? 0.8 : 1.3);
         m.compose(p, q, s);
-        this.sats.setMatrixAt(n++, m);
+        this.sats.setMatrixAt(n, m);
+        this.sats.setColorAt(n, deploy === 'platform' ? PLATFORM_COLOR : deploy === 'groundBattery' ? GROUND_COLOR : SAT_COLOR);
+        n++;
       }
     }
     this.sats.count = n;
     this.sats.instanceMatrix.needsUpdate = true;
+    if (this.sats.instanceColor) this.sats.instanceColor.needsUpdate = true;
   }
 }

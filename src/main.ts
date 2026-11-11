@@ -13,6 +13,7 @@ import { Indicators } from './render/indicators';
 import { Particles } from './render/particles';
 import { Game, STEP } from './sim/game';
 import { Hud } from './ui/hud';
+import { LevelUpScreen } from './ui/levelup';
 
 async function boot(): Promise<void> {
   const params = new URLSearchParams(location.search);
@@ -43,6 +44,10 @@ async function boot(): Promise<void> {
   const tmp = new Vector3();
   const hud = new Hud(document.getElementById('ui')!, game, seed, (i) => orbit.focusOn(markers.worldDir(i, tmp)));
 
+  const levelUp = new LevelUpScreen(document.getElementById('ui')!, game);
+  // ?auto=1 picks the first card automatically; used by automated checks.
+  const auto = params.get('auto') === '1';
+
   const resize = (): void => {
     pipeline.resize(window.innerWidth, window.innerHeight);
     orbit.setAspect(window.innerWidth / window.innerHeight);
@@ -63,6 +68,7 @@ async function boot(): Promise<void> {
     // Fixed-step simulation; rendering reads whatever state the last step left.
     acc = Math.min(acc + dt * speed, STEP * Math.max(5, speed));
     while (acc >= STEP) {
+      if (auto && game.offer) game.choose(0);
       game.step(STEP);
       acc -= STEP;
     }
@@ -75,6 +81,7 @@ async function boot(): Promise<void> {
     indicators.update(orbit.camera, time, window.innerWidth, window.innerHeight);
     markers.update(orbit.camera, window.innerWidth, window.innerHeight);
     hud.update(fps, now);
+    levelUp.update();
     pipeline.render(scene, orbit.camera);
     requestAnimationFrame(frame);
   };

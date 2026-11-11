@@ -1,6 +1,6 @@
 import { AdditiveBlending, BufferAttribute, BufferGeometry, DynamicDrawUsage, Object3D, Points, ShaderMaterial } from 'three';
 import { Rng } from '../core/rng';
-import { FX_CITY_HIT, FX_EXPLOSION, FX_HIT, FX_MUZZLE, Game } from '../sim/game';
+import { FX_BLAST, FX_CITY_HIT, FX_CRIT, FX_EXPLOSION, FX_HIT, FX_MUZZLE, Game } from '../sim/game';
 
 const MAX = 4000;
 
@@ -83,6 +83,8 @@ export class Particles {
       else if (kind === FX_HIT) this.burst(x, y, z, 4, 0.18, 0.25, 2.0, 1.8, 1.0);
       else if (kind === FX_MUZZLE) this.burst(x, y, z, 2, 0.08, 0.15, 1.2, 1.4, 2.0);
       else if (kind === FX_CITY_HIT) this.burst(x, y, z, 10, 0.12, 0.6, 2.5, 0.4, 0.2);
+      else if (kind === FX_BLAST) this.burst(x, y, z, 40, 0.55, 0.45, 3.0, 1.6, 0.4);
+      else if (kind === FX_CRIT) this.burst(x, y, z, 8, 0.3, 0.3, 3.0, 3.0, 3.0);
     }
     g.fxCount = 0;
 
