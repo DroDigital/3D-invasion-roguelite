@@ -1,4 +1,4 @@
-# ORBITAL WATCH — design (approved 2026-11-11)
+# ORBITAL WATCH — design (approved 2026-11-11, updated after milestone 8)
 
 ## Architecture
 
@@ -98,3 +98,44 @@ Sourced (CC0 / public domain / OFL): Earth maps (NASA), alien hulls and hero kit
 OpenGameArt), UI font. Coded: starfield, atmosphere, clouds (placeholder), shields, beams,
 projectiles, particles, trajectories, indicators, post shaders, UI icons. See `CREDITS.md`
 and `TODO-ASSETS.md`.
+
+## As built (milestones 4–8)
+
+### Content counts
+| Table | Count | File |
+|---|---|---|
+| Weapons | 24 base (7 families × 5 tiers) + 15 evolved | `src/data/weapons.ts` |
+| Evolutions | 15 (every weapon ≥ 1 partner, 5 have two) | `src/data/weapons.ts` |
+| Passives | 62 | `src/data/passives.ts` |
+| Relics | 16 | `src/data/passives.ts` |
+| Species × roles | 4 × 6 = 24 alien types | `src/data/aliens.ts` |
+| Rarity tiers / modifiers | 4 / 5 | `src/data/aliens.ts` |
+| Active abilities | 8 | `src/data/abilities.ts` |
+| Commanders / unlocks | 6 / 26 | `src/data/meta.ts` |
+
+### Fire kinds
+`projectile` (homing, optional aoe/pierce/split/field-on-impact/chain-on-hit), `beam`, `lineBeam`,
+`chain`, `field`, `drone` (retargeting seekers), `nova` (planet-wide pulse). Any tier may add dot, stun,
+slow, mark, execute or %max-health damage. Evolved weapons combine these into behaviour neither
+parent has (e.g. Graviton Driver: piercing round that drops a gravity field; Seeker Swarm: drones that
+explode on every hit; Gauss Lance: line beam through every alien behind the target).
+
+### Tier models
+`src/render/kit.ts` assembles each tier from a recipe: the weapon's `look` (body, gun, hero part, accent)
+plus tier-gated structure (panels, hero part, rings and emitters, second ring, orb, fins). Parts are coded
+primitives or Kenney Space Kit meshes. Every tier has a unique `model` id (tested) and grows on screen.
+
+### Asset decisions
+| Asset | Decision | Why |
+|---|---|---|
+| Alien hulls | Sourced (Quaternius) | Far better silhouettes than coded; baked to vertex colours and recoloured per species so one hull set serves four species |
+| Weapon parts | Mixed | Kenney parts for hero pieces (dishes, turrets, rockets); coded parts for structure that must vary per tier |
+| Earth maps | Sourced (NASA) | No procedural equivalent |
+| Clouds | Coded (placeholder) | Sourced map unreachable, see TODO-ASSETS.md |
+| Starfield, atmosphere, shields, fields, beams, particles, post, UI | Coded | Procedural result is as good or better |
+| SFX / music | Sourced (OpenGameArt, Kenney) | CC0/CC-BY packs cover the needs |
+
+### Performance notes
+Struct-of-arrays pools, one `InstancedMesh` per hull / weapon tier / effect type, GPU particles (CPU writes
+only at spawn), change-driven DOM. Measured CPU per frame at ~560 aliens with nine tier-5 weapons:
+sim 0.45 ms, instance updates 0.32 ms, HUD 0.32 ms, particles 0.03 ms.

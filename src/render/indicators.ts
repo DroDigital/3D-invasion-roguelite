@@ -49,9 +49,15 @@ export class Indicators {
     }
   }
 
+  dispose(): void {
+    this.rings.removeFromParent();
+    this.rings.geometry.dispose();
+    for (const a of this.arrows) a.remove();
+  }
+
   update(camera: PerspectiveCamera, time: number, viewW: number, viewH: number): void {
     const c = this.game.cities;
-    const siege = this.game.siege;
+    const siege = this.game.threat;
     const pulse = 1 + ((time * 1.4) % 1) * 2.2;
     for (let i = 0; i < c.count; i++) {
       const active = siege[i] > 0 && c.health[i] > 0;

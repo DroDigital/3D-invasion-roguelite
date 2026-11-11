@@ -4,4 +4,5 @@ Coded placeholders are in use for these. Replace when the source becomes reachab
 
 | Asset | Placeholder in use | Wanted source | Why not sourced |
 |---|---|---|---|
-| Earth cloud layer | Procedural noise clouds (`src/render/earth.ts`) | NASA Blue Marble clouds (`cloud_combined`) — public domain | `eoimages.gsfc.nasa.gov` resets the connection from the build environment; the only mirror found has no stated provenance |
+| Earth cloud layer | Procedural noise clouds (`src/render/earth.ts`) | NASA Blue Marble clouds (`cloud_combined`), public domain | `eoimages.gsfc.nasa.gov` resets the connection from the build environment; the only mirror found has no stated provenance |
+| More SFX variety (weapon-specific impacts, alien engine hums) | Shared hit/explosion clips | Freesound CC0 | freesound.org is refused by the build environment's network policy; Kenney/OpenGameArt packs cover the essentials |

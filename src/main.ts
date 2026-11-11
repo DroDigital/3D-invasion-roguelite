@@ -1,52 +1,254 @@
 import '@fontsource/share-tech-mono';
 import './ui/style.css';
-import { AmbientLight, DirectionalLight, Scene, Vector3 } from 'three';
-import { loadTexture } from './core/assets';
-import { randomSeed } from './core/rng';
+import { Raycaster, Scene, Vector2, Vector3 } from 'three';
+import { audio } from './audio/audio';
+import { lazyLoadModels, loadTexture, preloadModels } from './core/assets';
+import { randomSeed, Rng } from './core/rng';
+import { abilitySlots, loadProfile, Profile, saveProfile } from './core/save';
+import { runReward } from './data/meta';
 import { CityMarkers } from './render/cityMarkers';
-import { Earth } from './render/earth';
-import { OrbitCamera } from './render/orbitCamera';
-import { Pipeline } from './render/pipeline';
-import { createStarfield } from './render/starfield';
 import { CombatView } from './render/combatView';
+import { Earth } from './render/earth';
 import { Indicators } from './render/indicators';
+import { OrbitCamera } from './render/orbitCamera';
 import { Particles } from './render/particles';
+import { Pipeline } from './render/pipeline';
+import { PS2, setDetailTexture } from './render/ps2Material';
+import { createStarfield } from './render/starfield';
+import { Bot } from './sim/bot';
+import { devTools } from './dev';
 import { Game, STEP } from './sim/game';
+import { h } from './ui/dom';
 import { Hud } from './ui/hud';
 import { LevelUpScreen } from './ui/levelup';
+import { Menu, openPause } from './ui/menu';
+import { ShopScreen } from './ui/shop';
+
+interface Run {
+  game: Game;
+  seed: string;
+  combat: CombatView;
+  particles: Particles;
+  indicators: Indicators;
+  markers: CityMarkers;
+  hud: Hud;
+  levelUp: LevelUpScreen;
+  shop: ShopScreen;
+  rewarded: boolean;
+  points: number;
+  evolutions: number;
+}
+
+const params = new URLSearchParams(location.search);
+// ?speed=N runs N sim steps per frame and ?auto=1 lets the bot play; both are for automated checks.
+const speed = Math.max(1, Math.min(40, Number(params.get('speed')) || 1));
+const auto = params.get('auto') === '1';
 
 async function boot(): Promise<void> {
-  const params = new URLSearchParams(location.search);
-  const seed = (params.get('seed') ?? randomSeed()).toUpperCase();
-  // ?speed=N runs N sim steps per frame; used by automated checks.
-  const speed = Math.max(1, Math.min(40, Number(params.get('speed')) || 1));
-  const game = new Game(seed);
-
+  const profile: Profile = loadProfile();
   const canvas = document.getElementById('game') as HTMLCanvasElement;
+  const uiRoot = document.getElementById('ui')!;
+  const labels = document.getElementById('labels')!;
   const pipeline = new Pipeline(canvas);
   const orbit = new OrbitCamera(canvas, window.innerWidth / window.innerHeight);
   const scene = new Scene();
 
-  const [dayMap, nightMap] = await Promise.all([loadTexture('earthDay'), loadTexture('earthNight')]);
+  const loading = h('div', 'loading', 'ESTABLISHING UPLINK...');
+  uiRoot.append(loading);
+  const [dayMap, nightMap, plates] = await Promise.all([loadTexture('earthDay'), loadTexture('earthNight'), loadTexture('hullPlates'), preloadModels()]);
+  loading.remove();
+  setDetailTexture(plates);
+  CombatView.initPalettes();
   const earth = new Earth(dayMap, nightMap);
-  scene.add(earth.root, createStarfield(game.rng.stream('starfield')));
+  scene.add(earth.root, createStarfield(new Rng(20260101)));
 
-  const sun = new DirectionalLight(0xffffff, 2.6);
-  sun.position.copy(earth.sunDir);
-  scene.add(sun, new AmbientLight(0x5a6a90, 1.1));
+  const applySettings = (): void => {
+    const s = profile.settings;
+    pipeline.settings.bloom = s.bloom;
+    pipeline.settings.dither = s.dither;
+    pipeline.settings.crt = s.crt;
+    PS2.affine.value = s.affine ? 1 : 0;
+    audio.volumes = { master: s.master, sfx: s.sfx, music: s.music };
+    audio.applyVolumes();
+  };
+  applySettings();
 
-  // The sim runs in the Earth-fixed frame, so every game object parents to the spinning surface.
-  const labels = document.getElementById('labels')!;
-  const markers = new CityMarkers(game.cities, earth.surface, labels);
-  const combat = new CombatView(game, earth.surface);
-  const particles = new Particles(game, earth.surface);
-  const indicators = new Indicators(game, earth.surface, labels);
+  let run: Run | null = null;
+  let menu: Menu | null = null;
+  let paused = false;
+  let pauseEl: HTMLElement | null = null;
+  let targeting: number | null = null;
+  const bot = auto ? new Bot(1) : null;
   const tmp = new Vector3();
-  const hud = new Hud(document.getElementById('ui')!, game, seed, (i) => orbit.focusOn(markers.worldDir(i, tmp)));
 
-  const levelUp = new LevelUpScreen(document.getElementById('ui')!, game);
-  // ?auto=1 picks the first card automatically; used by automated checks.
-  const auto = params.get('auto') === '1';
+  const showMenu = (): void => {
+    menu?.dispose();
+    menu = new Menu(uiRoot, profile, { onLaunch: (seed) => startRun(seed ?? randomSeed()), onSettingsChanged: applySettings });
+    audio.playMusic('menu');
+  };
+
+  const endRun = (): void => {
+    if (!run) return;
+    run.combat.dispose();
+    run.particles.dispose();
+    run.indicators.dispose();
+    run.markers.dispose();
+    run.hud.dispose();
+    run.levelUp.dispose();
+    run.shop.dispose();
+    run = null;
+    targeting = null;
+    canvas.classList.remove('targeting');
+  };
+
+  /** Award command points once, when the run ends. */
+  const settle = (r: Run): void => {
+    if (r.rewarded) return;
+    r.rewarded = true;
+    const g = r.game;
+    r.points = runReward(g.wave, g.kills, g.bossKills);
+    profile.points += r.points;
+    profile.totalPoints += r.points;
+    profile.stats.runs++;
+    profile.stats.bestWave = Math.max(profile.stats.bestWave, g.wave);
+    profile.stats.kills += g.kills;
+    profile.stats.evolutions += r.evolutions;
+    saveProfile(profile);
+    audio.play('gameover', 0.9);
+  };
+
+  const startRun = (seed: string): void => {
+    endRun();
+    menu?.dispose();
+    menu = null;
+    const game = new Game({
+      seed,
+      commander: profile.commander,
+      abilities: profile.loadout,
+      abilitySlots: abilitySlots(profile),
+      unlocks: profile.unlocks,
+    });
+    const markers = new CityMarkers(game.cities, earth.surface, labels);
+    const r: Run = {
+      game,
+      seed,
+      combat: new CombatView(game, earth.surface),
+      particles: new Particles(game, earth.surface),
+      indicators: new Indicators(game, earth.surface, labels),
+      markers,
+      hud: new Hud(uiRoot, game, seed, {
+        onCity: (i) => {
+          if (targeting !== null && run?.game.abilities[targeting]?.def.targeting === 'city') fireAbility(targeting, { city: i });
+          else orbit.focusOn(markers.worldDir(i, tmp));
+        },
+        onAbility: (i) => tryAbility(i),
+        onRetry: () => startRun(seed),
+        onNewRun: () => startRun(randomSeed()),
+        onMenu: () => {
+          endRun();
+          showMenu();
+        },
+      }),
+      levelUp: new LevelUpScreen(uiRoot, game),
+      shop: new ShopScreen(uiRoot, game),
+      rewarded: false,
+      points: 0,
+      evolutions: 0,
+    };
+    run = r;
+    paused = false;
+    lazyLoadModels();
+    audio.playMusic('calm');
+    (window as unknown as { __ow: unknown }).__ow = { orbit, game, earth, pipeline, profile, startRun, run, dev: params.get('dev') === '1' ? devTools(game) : undefined };
+  };
+
+  // ---- abilities: Q/E, on-screen buttons, and click-on-globe targeting ----
+  const fireAbility = (i: number, target?: { point?: [number, number, number]; city?: number }): void => {
+    if (!run) return;
+    if (run.game.useAbility(i, target)) audio.play(run.game.abilities[i].def.sfx, 0.9);
+    targeting = null;
+    canvas.classList.remove('targeting');
+    run.hud.setTargeting(null);
+  };
+  const tryAbility = (i: number): void => {
+    if (!run || run.game.paused) return;
+    const a = run.game.abilities[i];
+    if (!a || a.cd > 0) return;
+    if (a.def.targeting === 'none') fireAbility(i);
+    else {
+      targeting = targeting === i ? null : i;
+      canvas.classList.toggle('targeting', targeting !== null);
+      run.hud.setTargeting(targeting);
+    }
+  };
+  const ray = new Raycaster();
+  const ndc = new Vector2();
+  let downX = 0;
+  let downY = 0;
+  canvas.addEventListener('pointerdown', (e) => {
+    downX = e.clientX;
+    downY = e.clientY;
+  });
+  canvas.addEventListener('pointerup', (e) => {
+    if (targeting === null || !run || Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
+    ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+    ray.setFromCamera(ndc, orbit.camera);
+    // Ray vs unit sphere.
+    const o = ray.ray.origin;
+    const d = ray.ray.direction;
+    const b = o.dot(d);
+    const c = o.lengthSq() - 1;
+    const disc = b * b - c;
+    if (disc < 0) return;
+    const hit = tmp.copy(d).multiplyScalar(-b - Math.sqrt(disc)).add(o);
+    const local = earth.surface.worldToLocal(hit).normalize();
+    const a = run.game.abilities[targeting];
+    if (a.def.targeting === 'point') fireAbility(targeting, { point: [local.x, local.y, local.z] });
+    else {
+      const cs = run.game.cities;
+      let best = -1;
+      let bd = 0.97;
+      for (let k = 0; k < cs.count; k++) {
+        const dot = cs.pos[k * 3] * local.x + cs.pos[k * 3 + 1] * local.y + cs.pos[k * 3 + 2] * local.z;
+        if (cs.health[k] > 0 && dot > bd) {
+          bd = dot;
+          best = k;
+        }
+      }
+      if (best >= 0) fireAbility(targeting, { city: best });
+    }
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (!run) return;
+    if (e.key === 'q' || e.key === 'Q') tryAbility(0);
+    else if (e.key === 'e' || e.key === 'E') tryAbility(1);
+    else if (e.key === 'Escape') {
+      if (targeting !== null) {
+        targeting = null;
+        canvas.classList.remove('targeting');
+        run.hud.setTargeting(null);
+      } else if (!run.game.offer && run.game.phase !== 'gameover' && !pauseEl) {
+        paused = true;
+        pauseEl = openPause(uiRoot, profile, () => {
+          paused = false;
+          pauseEl = null;
+        }, () => {
+          paused = false;
+          pauseEl = null;
+          if (run) {
+            run.game.phase = 'gameover';
+          }
+        }, () => {
+          saveProfile(profile);
+          applySettings();
+        });
+      }
+    }
+  });
+  // Browsers only allow audio after a gesture.
+  window.addEventListener('pointerdown', () => void audio.unlock(), { once: true });
+  window.addEventListener('keydown', () => void audio.unlock(), { once: true });
 
   const resize = (): void => {
     pipeline.resize(window.innerWidth, window.innerHeight);
@@ -59,36 +261,76 @@ async function boot(): Promise<void> {
   let time = 0;
   let fps = 60;
   let acc = 0;
+  const sunView = new Vector3();
   const frame = (now: number): void => {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     time += dt;
     if (dt > 0) fps += (1 / dt - fps) * 0.05;
 
-    // Fixed-step simulation; rendering reads whatever state the last step left.
-    acc = Math.min(acc + dt * speed, STEP * Math.max(5, speed));
-    while (acc >= STEP) {
-      if (auto && game.offer) game.choose(0);
-      game.step(STEP);
-      acc -= STEP;
+    const r = run;
+    if (r) {
+      const g = r.game;
+      // Fixed-step simulation; rendering reads whatever state the last step left.
+      if (!paused) {
+        acc = Math.min(acc + dt * speed, STEP * Math.max(5, speed));
+        while (acc >= STEP) {
+          if (bot) bot.act(g);
+          const evoBefore = g.log.length && g.log[g.log.length - 1];
+          g.step(STEP);
+          acc -= STEP;
+          const lastLog = g.log[g.log.length - 1];
+          if (lastLog && lastLog !== evoBefore && lastLog.text.startsWith('EVOLUTION')) r.evolutions++;
+          if (g.paused) break;
+        }
+      }
+      if (bot && g.paused) bot.act(g);
+      if (g.phase === 'gameover') settle(r);
+      // Music follows the fight.
+      audio.playMusic(g.bossSlot >= 0 ? 'boss' : g.phase === 'spawning' || g.phase === 'clearing' ? 'combat' : 'calm');
+    } else if (menu) {
+      orbit.yaw += dt * 0.05;
     }
 
     earth.update(dt, time);
     orbit.update(dt);
+    if (r) {
+      const shake = profile.settings.shake ? r.combat.shake : 0;
+      if (shake > 0) {
+        orbit.camera.position.x += (Math.random() - 0.5) * shake * 0.03;
+        orbit.camera.position.y += (Math.random() - 0.5) * shake * 0.03;
+      }
+    }
     scene.updateMatrixWorld();
-    combat.update();
-    particles.update(dt);
-    indicators.update(orbit.camera, time, window.innerWidth, window.innerHeight);
-    markers.update(orbit.camera, window.innerWidth, window.innerHeight);
-    hud.update(fps, now);
-    levelUp.update();
+    orbit.camera.updateMatrixWorld();
+    PS2.sunView.value.copy(sunView.copy(earth.sunDir).transformDirection(orbit.camera.matrixWorldInverse));
+    PS2.snapRes.value.set(profile.settings.vertexSnap ? pipeline.width * 0.5 : 0, profile.settings.vertexSnap ? pipeline.height * 0.5 : 0);
+
+    if (r) {
+      r.combat.update(dt);
+      r.particles.update(dt, pipeline.height / 480);
+      audio.consume(r.game);
+      r.game.fxCount = 0;
+      r.indicators.update(orbit.camera, time, window.innerWidth, window.innerHeight);
+      r.markers.update(orbit.camera, window.innerWidth, window.innerHeight);
+      r.hud.update(fps, now, r.points);
+      r.levelUp.update();
+      r.shop.update();
+      pipeline.flash = r.combat.flash;
+    } else pipeline.flash = 0;
     pipeline.render(scene, orbit.camera);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
 
-  // Debug handle for automated checks.
-  (window as unknown as { __ow: unknown }).__ow = { orbit, game, earth, pipeline };
+  (window as unknown as { __ow: unknown }).__ow = { orbit, earth, pipeline, profile, startRun };
+  if (params.get('gallery') !== null) {
+    const { showGallery } = await import('./gallery');
+    showGallery(scene, earth, orbit, Number(params.get('gallery')) || 0);
+    return;
+  }
+  if (params.get('seed') || auto) startRun((params.get('seed') ?? randomSeed()).toUpperCase());
+  else showMenu();
 }
 
 void boot();
