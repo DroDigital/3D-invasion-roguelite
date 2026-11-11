@@ -1,0 +1,8 @@
+{
+  "textures": {
+    "earthDay": { "path": "textures/earth_day.webp", "preload": true },
+    "earthNight": { "path": "textures/earth_night.webp", "preload": true }
+  },
+  "models": {},
+  "audio": {}
+}
