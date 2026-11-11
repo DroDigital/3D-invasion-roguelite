@@ -15,7 +15,7 @@ npm run build
 ## Milestones
 
 1. [x] Earth, camera controls, starfield, cities
-2. [ ] One enemy, one auto-targeting weapon, wave spawner, city damage, game over
+2. [x] One enemy, one auto-targeting weapon, wave spawner, city damage, game over
 3. [ ] XP, level-up screen, data-driven upgrade tables
 4. [ ] Shop phase and salvage economy
 5. [ ] All alien behaviors, species, rarity tiers and modifiers

@@ -64,7 +64,53 @@ html, body {
   position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
   font-size: 11px; letter-spacing: 2px; color: var(--ph-dim); padding: 4px 12px;
 }
+
+.threat-arrow {
+  position: absolute; left: 0; top: 0; display: none; flex-direction: column; align-items: center; gap: 2px;
+  font-size: 10px; letter-spacing: 1px; color: var(--red); text-shadow: 0 0 6px rgba(255, 60, 40, 0.8);
+  animation: blink 0.7s steps(2) infinite; will-change: transform;
+}
+.threat-arrow i {
+  width: 0; height: 0; border-left: 9px solid transparent; border-right: 9px solid transparent;
+  border-bottom: 18px solid var(--red);
+}
+@keyframes blink { 50% { opacity: 0.45; } }
+
+#arsenal { position: absolute; top: 52px; right: 8px; width: 250px; }
+#arsenal .rows { padding: 6px 10px 10px; font-size: 11px; }
+.wpn { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 3px 0; border-bottom: 1px dashed var(--ph-dim); }
+.wpn .name { color: var(--amber); }
+.wpn .tier { color: var(--ph); }
+.wpn .stat { color: var(--ph-dim); grid-column: 1 / -1; }
+.empty-slot { color: var(--ph-dim); padding: 3px 0; }
+
+#banner {
+  position: absolute; top: 22%; left: 50%; transform: translateX(-50%);
+  font-size: 26px; letter-spacing: 8px; color: var(--amber); text-shadow: 0 0 12px rgba(255, 194, 61, 0.7);
+  opacity: 0; transition: opacity 0.4s; white-space: nowrap;
+}
+#banner.on { opacity: 1; }
+
+#gameover {
+  position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+  background: rgba(20, 0, 0, 0.55); pointer-events: auto;
+}
+#gameover.on { display: flex; }
+#gameover .panel { width: 420px; max-width: 92vw; border-color: var(--red); }
+#gameover h2 { background: var(--red); font-size: 14px; padding: 8px 12px; }
+#gameover .body { padding: 14px 16px; font-size: 13px; line-height: 1.9; }
+#gameover .body b { color: var(--amber); font-weight: normal; float: right; }
+#gameover .btns { display: flex; gap: 10px; padding: 0 16px 16px; }
+button.cmd {
+  flex: 1; font: inherit; font-size: 12px; letter-spacing: 2px; padding: 8px; cursor: pointer;
+  color: var(--ph); background: rgba(93, 255, 160, 0.08); border: 1px solid var(--line);
+}
+button.cmd:hover { background: var(--line); color: #02150c; }
+
 @media (max-width: 720px) {
+  #arsenal { display: none; }
   #citylist { display: none; }
   #topbar .title span { display: none; }
 }
+.city-row.siege { color: var(--red); animation: blink 0.7s steps(2) infinite; }
+.city-row.dead { color: #7a2a24; text-decoration: line-through; animation: none; }
