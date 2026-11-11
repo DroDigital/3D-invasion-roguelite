@@ -1,6 +1,22 @@
-export const MAX_ENEMIES = 600;
-export const ENEMY_APPROACH = 0;
-export const ENEMY_SIEGE = 1;
+export const MAX_ENEMIES = 700;
+
+export const ST_APPROACH = 0;
+/** Invader landed and besieging. */
+export const ST_SIEGE = 1;
+/** Destroyer / carrier / boss on station, abductor beaming. */
+export const ST_HOVER = 2;
+/** Abductor fleeing with cargo. */
+export const ST_FLEE = 3;
+/** Saboteur clamped onto a weapon emitter. */
+export const ST_ATTACHED = 4;
+
+export const ROLE_INVADER = 0;
+export const ROLE_DESTROYER = 1;
+export const ROLE_ABDUCTOR = 2;
+export const ROLE_SABOTEUR = 3;
+export const ROLE_CARRIER = 4;
+export const ROLE_BOSS = 5;
+export const ROLE_IDS = ['invader', 'destroyer', 'abductor', 'saboteur', 'carrier', 'boss'] as const;
 
 /** Struct-of-arrays enemy pool in the Earth-fixed frame. Slots are reused; `gen`
  *  changes on every reuse so stale references (projectiles) can be detected. */
@@ -8,6 +24,11 @@ export class EnemyPool {
   readonly alive = new Uint8Array(MAX_ENEMIES);
   readonly gen = new Uint16Array(MAX_ENEMIES);
   readonly def = new Uint16Array(MAX_ENEMIES);
+  readonly species = new Uint8Array(MAX_ENEMIES);
+  readonly role = new Uint8Array(MAX_ENEMIES);
+  readonly tier = new Uint8Array(MAX_ENEMIES);
+  /** ModifierDef bits. */
+  readonly mods = new Uint8Array(MAX_ENEMIES);
   readonly state = new Uint8Array(MAX_ENEMIES);
   readonly x = new Float32Array(MAX_ENEMIES);
   readonly y = new Float32Array(MAX_ENEMIES);
@@ -18,37 +39,66 @@ export class EnemyPool {
   readonly dz = new Float32Array(MAX_ENEMIES);
   readonly hp = new Float32Array(MAX_ENEMIES);
   readonly maxHp = new Float32Array(MAX_ENEMIES);
+  readonly shield = new Float32Array(MAX_ENEMIES);
+  readonly maxShield = new Float32Array(MAX_ENEMIES);
+  readonly armor = new Float32Array(MAX_ENEMIES);
+  /** Health regenerated per second (absolute). */
+  readonly regen = new Float32Array(MAX_ENEMIES);
+  readonly speed = new Float32Array(MAX_ENEMIES);
+  readonly dmgMul = new Float32Array(MAX_ENEMIES);
+  readonly rewardMul = new Float32Array(MAX_ENEMIES);
+  readonly scale = new Float32Array(MAX_ENEMIES);
   /** Damage already in flight toward this enemy; used to avoid overkill. */
   readonly pending = new Float32Array(MAX_ENEMIES);
   readonly city = new Int16Array(MAX_ENEMIES);
+  /** Saboteur target: weapon slot and emitter index. */
+  readonly tgtW = new Int8Array(MAX_ENEMIES);
+  readonly tgtE = new Int8Array(MAX_ENEMIES);
+  /** Role timer (bombard, spawn, abduct). */
+  readonly timer = new Float32Array(MAX_ENEMIES);
+  /** Movement timer (blink). */
+  readonly mtimer = new Float32Array(MAX_ENEMIES);
+  /** Seconds since last damage, for shield regeneration. */
+  readonly sinceHit = new Float32Array(MAX_ENEMIES);
+  /** People carried by an abductor. */
+  readonly cargo = new Float32Array(MAX_ENEMIES);
   readonly flash = new Float32Array(MAX_ENEMIES);
+  readonly stun = new Float32Array(MAX_ENEMIES);
+  readonly slow = new Float32Array(MAX_ENEMIES);
+  readonly slowT = new Float32Array(MAX_ENEMIES);
+  readonly dotDps = new Float32Array(MAX_ENEMIES);
+  readonly dotT = new Float32Array(MAX_ENEMIES);
+  readonly dotW = new Int8Array(MAX_ENEMIES);
+  readonly mark = new Float32Array(MAX_ENEMIES);
+  readonly markT = new Float32Array(MAX_ENEMIES);
+  readonly cloaked = new Uint8Array(MAX_ENEMIES);
+  /** Per-enemy random phase for movement wobble and cloak cycles. */
+  readonly seed = new Float32Array(MAX_ENEMIES);
   count = 0;
   /** One past the highest slot ever used; loops only need to scan this far. */
   high = 0;
   private free = new Int16Array(MAX_ENEMIES);
   private freeTop = 0;
 
-  spawn(def: number, x: number, y: number, z: number, hp: number, city: number): number {
+  spawn(): number {
     let i: number;
     if (this.freeTop > 0) i = this.free[--this.freeTop];
     else if (this.high < MAX_ENEMIES) i = this.high++;
     else return -1;
     this.alive[i] = 1;
     this.gen[i] = (this.gen[i] + 1) & 0xffff;
-    this.def[i] = def;
-    this.state[i] = ENEMY_APPROACH;
-    this.x[i] = x;
-    this.y[i] = y;
-    this.z[i] = z;
-    const l = Math.hypot(x, y, z) || 1;
-    this.dx[i] = -x / l;
-    this.dy[i] = -y / l;
-    this.dz[i] = -z / l;
-    this.hp[i] = hp;
-    this.maxHp[i] = hp;
+    this.state[i] = ST_APPROACH;
+    this.mods[i] = 0;
+    this.shield[i] = this.maxShield[i] = 0;
+    this.armor[i] = this.regen[i] = 0;
     this.pending[i] = 0;
-    this.city[i] = city;
-    this.flash[i] = 0;
+    this.tgtW[i] = this.tgtE[i] = -1;
+    this.timer[i] = this.mtimer[i] = this.sinceHit[i] = 0;
+    this.cargo[i] = this.flash[i] = this.stun[i] = 0;
+    this.slow[i] = this.slowT[i] = this.dotDps[i] = this.dotT[i] = 0;
+    this.dotW[i] = -1;
+    this.mark[i] = this.markT[i] = 0;
+    this.cloaked[i] = 0;
     this.count++;
     return i;
   }
@@ -58,5 +108,10 @@ export class EnemyPool {
     this.alive[i] = 0;
     this.free[this.freeTop++] = i;
     this.count--;
+  }
+
+  /** Untargetable right now. */
+  hidden(i: number): boolean {
+    return this.cloaked[i] === 1;
   }
 }

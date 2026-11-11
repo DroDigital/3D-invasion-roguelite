@@ -1,8 +1,264 @@
 {
-  "textures": {
-    "earthDay": { "path": "textures/earth_day.webp", "preload": true },
-    "earthNight": { "path": "textures/earth_night.webp", "preload": true }
+ "textures": {
+  "earthDay": {
+   "path": "textures/earth_day.webp",
+   "preload": true
   },
-  "models": {},
-  "audio": {}
+  "earthNight": {
+   "path": "textures/earth_night.webp",
+   "preload": true
+  },
+  "hullPlates": {
+   "path": "textures/hull_plates.webp",
+   "preload": true
+  }
+ },
+ "models": {
+  "hull:bob": {
+   "path": "models/hulls/bob.glb",
+   "preload": false
+  },
+  "hull:challenger": {
+   "path": "models/hulls/challenger.glb",
+   "preload": false
+  },
+  "hull:dispatcher": {
+   "path": "models/hulls/dispatcher.glb",
+   "preload": true
+  },
+  "hull:executioner": {
+   "path": "models/hulls/executioner.glb",
+   "preload": true
+  },
+  "hull:imperial": {
+   "path": "models/hulls/imperial.glb",
+   "preload": false
+  },
+  "hull:insurgent": {
+   "path": "models/hulls/insurgent.glb",
+   "preload": true
+  },
+  "hull:omen": {
+   "path": "models/hulls/omen.glb",
+   "preload": false
+  },
+  "hull:pancake": {
+   "path": "models/hulls/pancake.glb",
+   "preload": true
+  },
+  "hull:spitfire": {
+   "path": "models/hulls/spitfire.glb",
+   "preload": true
+  },
+  "hull:striker": {
+   "path": "models/hulls/striker.glb",
+   "preload": false
+  },
+  "hull:zenith": {
+   "path": "models/hulls/zenith.glb",
+   "preload": true
+  },
+  "kit:hangar_roundGlass": {
+   "path": "models/kit/hangar_roundGlass.glb",
+   "preload": true
+  },
+  "kit:machine_barrel": {
+   "path": "models/kit/machine_barrel.glb",
+   "preload": true
+  },
+  "kit:machine_generator": {
+   "path": "models/kit/machine_generator.glb",
+   "preload": true
+  },
+  "kit:machine_generatorLarge": {
+   "path": "models/kit/machine_generatorLarge.glb",
+   "preload": true
+  },
+  "kit:machine_wireless": {
+   "path": "models/kit/machine_wireless.glb",
+   "preload": true
+  },
+  "kit:pipe_ring": {
+   "path": "models/kit/pipe_ring.glb",
+   "preload": true
+  },
+  "kit:rock_crystals": {
+   "path": "models/kit/rock_crystals.glb",
+   "preload": true
+  },
+  "kit:rocket_baseA": {
+   "path": "models/kit/rocket_baseA.glb",
+   "preload": true
+  },
+  "kit:rocket_finsA": {
+   "path": "models/kit/rocket_finsA.glb",
+   "preload": true
+  },
+  "kit:rocket_fuelA": {
+   "path": "models/kit/rocket_fuelA.glb",
+   "preload": true
+  },
+  "kit:rocket_sidesA": {
+   "path": "models/kit/rocket_sidesA.glb",
+   "preload": true
+  },
+  "kit:rocket_topA": {
+   "path": "models/kit/rocket_topA.glb",
+   "preload": true
+  },
+  "kit:rocket_topB": {
+   "path": "models/kit/rocket_topB.glb",
+   "preload": true
+  },
+  "kit:satelliteDish": {
+   "path": "models/kit/satelliteDish.glb",
+   "preload": true
+  },
+  "kit:satelliteDish_detailed": {
+   "path": "models/kit/satelliteDish_detailed.glb",
+   "preload": true
+  },
+  "kit:satelliteDish_large": {
+   "path": "models/kit/satelliteDish_large.glb",
+   "preload": true
+  },
+  "kit:structure_detailed": {
+   "path": "models/kit/structure_detailed.glb",
+   "preload": true
+  },
+  "kit:turret_double": {
+   "path": "models/kit/turret_double.glb",
+   "preload": true
+  },
+  "kit:turret_single": {
+   "path": "models/kit/turret_single.glb",
+   "preload": true
+  },
+  "kit:weapon_gun": {
+   "path": "models/kit/weapon_gun.glb",
+   "preload": true
+  },
+  "kit:weapon_rifle": {
+   "path": "models/kit/weapon_rifle.glb",
+   "preload": true
+  }
+ },
+ "audio": {
+  "sfx:abduct": {
+   "path": "audio/sfx/abduct.ogg",
+   "preload": true
+  },
+  "sfx:ability": {
+   "path": "audio/sfx/ability.ogg",
+   "preload": true
+  },
+  "sfx:alarm": {
+   "path": "audio/sfx/alarm.ogg",
+   "preload": true
+  },
+  "sfx:boss": {
+   "path": "audio/sfx/boss.ogg",
+   "preload": true
+  },
+  "sfx:buy": {
+   "path": "audio/sfx/buy.ogg",
+   "preload": true
+  },
+  "sfx:city_hit": {
+   "path": "audio/sfx/city_hit.ogg",
+   "preload": true
+  },
+  "sfx:emp": {
+   "path": "audio/sfx/emp.ogg",
+   "preload": true
+  },
+  "sfx:escape": {
+   "path": "audio/sfx/escape.ogg",
+   "preload": true
+  },
+  "sfx:evolve": {
+   "path": "audio/sfx/evolve.ogg",
+   "preload": true
+  },
+  "sfx:explode_big": {
+   "path": "audio/sfx/explode_big.ogg",
+   "preload": true
+  },
+  "sfx:explode_small": {
+   "path": "audio/sfx/explode_small.ogg",
+   "preload": true
+  },
+  "sfx:gameover": {
+   "path": "audio/sfx/gameover.ogg",
+   "preload": true
+  },
+  "sfx:hit": {
+   "path": "audio/sfx/hit.ogg",
+   "preload": true
+  },
+  "sfx:levelup": {
+   "path": "audio/sfx/levelup.ogg",
+   "preload": true
+  },
+  "sfx:shield": {
+   "path": "audio/sfx/shield.ogg",
+   "preload": true
+  },
+  "sfx:shot_artillery": {
+   "path": "audio/sfx/shot_artillery.ogg",
+   "preload": true
+  },
+  "sfx:shot_drone": {
+   "path": "audio/sfx/shot_drone.ogg",
+   "preload": true
+  },
+  "sfx:shot_gravity": {
+   "path": "audio/sfx/shot_gravity.ogg",
+   "preload": true
+  },
+  "sfx:shot_kinetic": {
+   "path": "audio/sfx/shot_kinetic.ogg",
+   "preload": true
+  },
+  "sfx:shot_laser": {
+   "path": "audio/sfx/shot_laser.ogg",
+   "preload": true
+  },
+  "sfx:shot_missile": {
+   "path": "audio/sfx/shot_missile.ogg",
+   "preload": true
+  },
+  "sfx:shot_tesla": {
+   "path": "audio/sfx/shot_tesla.ogg",
+   "preload": true
+  },
+  "sfx:ui_click": {
+   "path": "audio/sfx/ui_click.ogg",
+   "preload": true
+  },
+  "sfx:ui_hover": {
+   "path": "audio/sfx/ui_hover.ogg",
+   "preload": true
+  },
+  "sfx:wave": {
+   "path": "audio/sfx/wave.ogg",
+   "preload": true
+  },
+  "music:boss": {
+   "path": "audio/music/boss.ogg",
+   "preload": false
+  },
+  "music:calm": {
+   "path": "audio/music/calm.ogg",
+   "preload": false
+  },
+  "music:combat": {
+   "path": "audio/music/combat.ogg",
+   "preload": false
+  },
+  "music:menu": {
+   "path": "audio/music/menu.ogg",
+   "preload": false
+  }
+ }
 }

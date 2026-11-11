@@ -51,6 +51,12 @@ export class CityMarkers {
     surface.add(this.mesh);
   }
 
+  dispose(): void {
+    this.mesh.removeFromParent();
+    this.mesh.geometry.dispose();
+    for (const l of this.labels) l.remove();
+  }
+
   /** World-space direction of a city right now (the planet spins). */
   worldDir(i: number, out: Vector3): Vector3 {
     const c = this.cities.pos;

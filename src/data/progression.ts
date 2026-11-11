@@ -5,6 +5,7 @@ export const PROGRESSION = {
   xpBase: 4,
   xpPerLevel: 3,
   choices: 3,
+  maxChoices: 5,
   rerolls: 3,
   banishes: 2,
   /** Offer weight of a tier upgrade for an owned weapon. */

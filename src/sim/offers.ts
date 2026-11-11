@@ -1,67 +1,164 @@
 import { PASSIVES } from '../data/passives';
 import { PROGRESSION, RARITY_WEIGHT } from '../data/progression';
-import type { UpgradeDef, WeaponDef } from '../data/types';
-import { WEAPONS } from '../data/weapons';
-import type { Rng } from '../core/rng';
-import type { Build } from './build';
-import type { Arsenal } from './weapons';
+import type { EvolutionDef, Rarity, UpgradeDef, WeaponDef } from '../data/types';
+import { BASE_WEAPONS, DEFAULT_START_WEAPONS, EVOLUTIONS, weaponById } from '../data/weapons';
+import { UNLOCKS } from '../data/meta';
+import type { Game } from './game';
+import { FX_EVOLVE } from './game';
+import { isMaxTier, updateEmitters } from './weapons';
 
 export type Offer =
   | { kind: 'weapon'; key: string; weapon: WeaponDef }
   | { kind: 'tier'; key: string; weapon: WeaponDef; slot: number; toTier: number }
-  | { kind: 'passive'; key: string; upgrade: UpgradeDef; stacks: number };
+  | { kind: 'passive'; key: string; upgrade: UpgradeDef; stacks: number }
+  | { kind: 'evolve'; key: string; evo: EvolutionDef; result: WeaponDef; a: number; b: number };
 
 interface Candidate {
   offer: Offer;
   weight: number;
 }
 
-/** Everything that could be offered right now, with its roll weight. */
-function candidates(arsenal: Arsenal, build: Build, banished: ReadonlySet<string>, exclude: readonly string[]): Candidate[] {
-  const out: Candidate[] = [];
-  const push = (offer: Offer, weight: number): void => {
-    if (!banished.has(offer.key) && !exclude.includes(offer.key)) out.push({ offer, weight });
-  };
-  if (arsenal.weapons.length < arsenal.slots) {
-    for (const w of WEAPONS) {
-      if (!arsenal.owns(w.id)) push({ kind: 'weapon', key: `w:${w.id}`, weapon: w }, RARITY_WEIGHT[w.rarity]);
-    }
-  }
-  arsenal.weapons.forEach((w, slot) => {
-    if (w.tier < 4) {
-      push({ kind: 'tier', key: `t:${w.def.id}`, weapon: w.def, slot, toTier: w.tier + 1 }, PROGRESSION.tierWeight);
-    }
-  });
-  for (const p of PASSIVES) {
-    const stacks = build.stacksOf(p.id);
-    if (stacks < p.maxStacks) push({ kind: 'passive', key: `p:${p.id}`, upgrade: p, stacks }, RARITY_WEIGHT[p.rarity]);
+export function rarityWeight(g: Game, r: Rarity): number {
+  const w = RARITY_WEIGHT[r];
+  // Lucky Star flattens the curve so rare things show up far more often.
+  return g.build.rules.has('luckyStar') ? Math.sqrt(w) * 10 : w;
+}
+
+/** Evolutions both of whose parents are owned at max tier (tier 4 with the catalyst relic). */
+export function readyEvolutions(g: Game): Offer[] {
+  const out: Offer[] = [];
+  const ws = g.arsenal.weapons;
+  const early = g.build.rules.has('earlyEvolution');
+  for (const evo of EVOLUTIONS) {
+    const a = ws.findIndex((w) => w.def.id === evo.parents[0]);
+    const b = ws.findIndex((w) => w.def.id === evo.parents[1]);
+    if (a < 0 || b < 0) continue;
+    const ok = (i: number): boolean => isMaxTier(ws[i]) || (early && ws[i].tier >= 3);
+    if (ok(a) && ok(b)) out.push({ kind: 'evolve', key: `e:${evo.id}`, evo, result: weaponById(evo.result), a, b });
   }
   return out;
 }
 
-/** Rarity-weighted draw of up to `n` distinct offers. */
-export function rollOffers(
-  rng: Rng, n: number, arsenal: Arsenal, build: Build,
-  banished: ReadonlySet<string>, exclude: readonly string[] = [],
-): Offer[] {
-  const pool = candidates(arsenal, build, banished, exclude);
-  const out: Offer[] = [];
+/** Everything that could be offered right now, with its roll weight. */
+function candidates(g: Game, exclude: readonly string[]): Candidate[] {
+  const out: Candidate[] = [];
+  const push = (offer: Offer, weight: number): void => {
+    if (!g.banished.has(offer.key) && !exclude.includes(offer.key)) out.push({ offer, weight });
+  };
+  const a = g.arsenal;
+  if (a.weapons.length < a.slots) {
+    for (const w of BASE_WEAPONS) {
+      if (!a.owns(w.id) && g.isUnlocked(w.id, w.unlock)) push({ kind: 'weapon', key: `w:${w.id}`, weapon: w }, rarityWeight(g, w.rarity) * 0.8);
+    }
+  }
+  a.weapons.forEach((w, slot) => {
+    if (!isMaxTier(w)) push({ kind: 'tier', key: `t:${w.def.id}`, weapon: w.def, slot, toTier: w.tier + 1 }, PROGRESSION.tierWeight);
+  });
+  for (const p of PASSIVES) {
+    const stacks = g.build.stacksOf(p.id);
+    if (stacks < p.maxStacks && g.isUnlocked(p.id, p.unlock)) push({ kind: 'passive', key: `p:${p.id}`, upgrade: p, stacks }, rarityWeight(g, p.rarity));
+  }
+  return out;
+}
+
+/** Rarity-weighted draw of up to `n` distinct offers. Ready evolutions always come first. */
+export function rollOffers(g: Game, n: number, exclude: readonly string[] = []): Offer[] {
+  const out: Offer[] = readyEvolutions(g).filter((o) => !exclude.includes(o.key)).slice(0, n);
+  const pool = candidates(g, exclude);
   while (out.length < n && pool.length > 0) {
-    const i = rng.weighted(pool.map((c) => c.weight));
+    const i = g.offerRng.weighted(pool.map((c) => c.weight));
     out.push(pool[i].offer);
     pool.splice(i, 1);
   }
   return out;
 }
 
-/** Opening choice: pick one starting weapon from three. */
-export function rollStartingWeapons(rng: Rng, n: number): Offer[] {
-  const pool = WEAPONS.slice();
+/** Opening choice: one starting weapon from three, drawn from the unlocked starting pool. */
+export function rollStartingWeapons(g: Game): Offer[] {
+  const ids = new Set(DEFAULT_START_WEAPONS);
+  for (const u of UNLOCKS) if (u.kind === 'startWeapon' && u.grants && g.unlocks.has(u.id)) ids.add(u.grants);
+  const pool = [...ids].map(weaponById);
   const out: Offer[] = [];
-  while (out.length < n && pool.length > 0) {
-    const i = rng.int(pool.length);
+  while (out.length < PROGRESSION.choices && pool.length > 0) {
+    const i = g.offerRng.int(pool.length);
     out.push({ kind: 'weapon', key: `w:${pool[i].id}`, weapon: pool[i] });
     pool.splice(i, 1);
   }
   return out;
+}
+
+export function openLevelUp(g: Game): void {
+  while (g.pendingLevels > 0) {
+    g.pendingLevels--;
+    const o = rollOffers(g, g.build.choices);
+    if (o.length > 0) {
+      g.offer = o;
+      g.offerKind = 'levelup';
+      return;
+    }
+  }
+}
+
+export function applyOffer(g: Game, i: number): void {
+  const o = g.offer?.[i];
+  if (!o) return;
+  const a = g.arsenal;
+  if (o.kind === 'weapon') a.add(o.weapon);
+  else if (o.kind === 'tier') {
+    const w = a.weapons[o.slot];
+    w.tier = o.toTier;
+    updateEmitters(w, 0);
+  } else if (o.kind === 'passive') g.build.add(o.upgrade);
+  else evolve(g, o.a, o.b, o.result);
+  g.recompute();
+  g.offer = null;
+  g.queueLevelUps();
+}
+
+/** Merge two max-tier weapons: the evolution takes slot `a`, slot `b` is freed. */
+export function evolve(g: Game, a: number, b: number, result: WeaponDef): void {
+  const ar = g.arsenal;
+  const nameA = ar.weapons[a].def.name;
+  const nameB = ar.weapons[b].def.name;
+  const keep = ar.replace(a, result);
+  keep.damageDealt = ar.weapons[a].damageDealt;
+  ar.remove(b);
+  // Slots after b shifted down: fix references held by saboteurs, projectiles and fields.
+  const fix = (s: number): number => (s === b ? -1 : s > b ? s - 1 : s);
+  const e = g.enemies;
+  for (let i = 0; i < e.high; i++) {
+    if (!e.alive[i]) continue;
+    if (e.tgtW[i] >= 0) e.tgtW[i] = fix(e.tgtW[i]);
+    if (e.dotW[i] >= 0) e.dotW[i] = fix(e.dotW[i]);
+  }
+  const p = g.projectiles;
+  for (let i = 0; i < p.high; i++) if (p.alive[i]) p.weapon[i] = fix(p.weapon[i]) < 0 ? -1 : fix(p.weapon[i]);
+  const f = g.fields;
+  for (let i = 0; i < f.alive.length; i++) if (f.alive[i]) f.weapon[i] = fix(f.weapon[i]) < 0 ? -1 : fix(f.weapon[i]);
+  g.emitFx(FX_EVOLVE, 0, 0, 0);
+  g.addLog(`EVOLUTION: ${nameA.toUpperCase()} + ${nameB.toUpperCase()} = ${result.name.toUpperCase()}`, 'good');
+}
+
+export function rerollOffers(g: Game): void {
+  if (!g.offer || g.offerKind !== 'levelup' || g.rerolls <= 0) return;
+  const o = rollOffers(g, g.build.choices);
+  if (o.length === 0) return;
+  g.rerolls--;
+  g.offer = o;
+}
+
+/** Remove an option from the pool for the rest of the run and replace its card. */
+export function banishOffer(g: Game, i: number): void {
+  const o = g.offer?.[i];
+  if (!o || g.offerKind !== 'levelup' || g.banishes <= 0 || o.kind === 'tier' || o.kind === 'evolve') return;
+  g.banishes--;
+  g.banished.add(o.key);
+  const keep = g.offer!.filter((_, j) => j !== i).map((x) => x.key);
+  const repl = rollOffers(g, 1, keep);
+  if (repl.length > 0) g.offer![i] = repl[0];
+  else g.offer!.splice(i, 1);
+  if (g.offer!.length === 0) {
+    g.offer = null;
+    g.queueLevelUps();
+  }
 }

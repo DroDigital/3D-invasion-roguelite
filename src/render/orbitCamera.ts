@@ -1,7 +1,7 @@
 import { PerspectiveCamera, Vector3 } from 'three';
 
 const MIN_DIST = 1.75;
-const MAX_DIST = 7;
+const MAX_ZOOM = 7;
 const MAX_PITCH = 1.45;
 
 /** Drag to rotate, scroll or pinch to zoom, both with inertia. */
@@ -103,7 +103,7 @@ export class OrbitCamera {
   }
 
   private zoomBy(f: number): void {
-    this.targetDist = Math.max(MIN_DIST, Math.min(MAX_DIST, this.targetDist * f));
+    this.targetDist = Math.max(MIN_DIST, Math.min(MAX_ZOOM, this.targetDist * f));
   }
 
   setAspect(aspect: number): void {
