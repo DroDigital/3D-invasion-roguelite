@@ -26,7 +26,7 @@ export function planWave(g: Game, r: Rng): void {
   const wave = g.wave;
   const def = WAVES[wave - 1];
   const boss = wave % WAVE_RULES.bossEvery === 0;
-  let budget = def ? def.budget : WAVE_RULES.budgetBase * Math.pow(WAVE_RULES.budgetGrowth, wave - 1);
+  let budget = def ? def.budget : WAVE_RULES.budgetBase + WAVE_RULES.budgetLinear * wave + WAVE_RULES.budgetQuad * wave * wave;
   if (boss) budget *= 0.6;
   const weights = def ? def.roleWeights : WAVE_RULES.defaultRoleWeights;
   const species = def?.species ?? speciesFor(wave);

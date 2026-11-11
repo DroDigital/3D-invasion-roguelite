@@ -113,15 +113,19 @@ export const WAVE_RULES = {
   firstDelay: 3,
   /** Countdown after leaving the shop. */
   intermission: 3,
-  /** Budget for generated waves: base * growth^(wave-1). */
+  /** Budget for generated waves: base + linear * wave + quad * wave^2. */
   budgetBase: 8,
-  budgetGrowth: 1.2,
+  budgetLinear: 1.5,
+  budgetQuad: 0.3,
   /** Seconds over which a wave's ships arrive. */
   duration: 16,
   clusterMin: 2,
   clusterMax: 4,
   spawnRadius: 6,
   hpGrowthPerWave: 1.11,
+  /** From this wave on, health grows by an extra factor per wave so every run ends eventually. */
+  overtimeWave: 28,
+  overtimeGrowth: 1.12,
   bossEvery: 5,
   /** Boss health multiplier per boss appearance (wave 5, 10, ...). */
   bossGrowth: 1.9,

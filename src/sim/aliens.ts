@@ -25,7 +25,8 @@ export interface SpawnOpts {
 /** Health growth for a given wave; bosses grow per appearance instead. */
 function waveHpMul(g: Game, boss: boolean): number {
   if (boss) return Math.pow(WAVE_RULES.bossGrowth, Math.max(0, Math.floor(g.wave / WAVE_RULES.bossEvery) - 1));
-  return Math.pow(WAVE_RULES.hpGrowthPerWave, Math.max(0, g.wave - 1));
+  const over = Math.max(0, g.wave - WAVE_RULES.overtimeWave);
+  return Math.pow(WAVE_RULES.hpGrowthPerWave, Math.max(0, g.wave - 1)) * Math.pow(WAVE_RULES.overtimeGrowth, over);
 }
 
 export function spawnAlien(g: Game, defIdx: number, tierIdx: number, x: number, y: number, z: number, city: number, rng: Rng, opts: SpawnOpts = {}): number {
@@ -335,9 +336,23 @@ export function updateAliens(g: Game, dt: number, realDt: number): void {
       }
 
       case ROLE_CARRIER:
-        if (e.state[i] === ST_HOVER) {
+        if (e.state[i] === ST_FLEE) {
+          // Spent carriers withdraw to deep space (no reward, no penalty) so waves always end.
+          const r = Math.hypot(e.x[i], e.y[i], e.z[i]) || 1;
+          e.dx[i] = e.x[i] / r;
+          e.dy[i] = e.y[i] / r;
+          e.dz[i] = e.z[i] / r;
+          const out = spd * 2 * dt;
+          e.x[i] += e.dx[i] * out;
+          e.y[i] += e.dy[i] * out;
+          e.z[i] += e.dz[i] * out;
+          if (r > WAVE_RULES.spawnRadius) {
+            g.emitFx(FX_WARP, e.x[i], e.y[i], e.z[i], 0, 0, 0, e.scale[i]);
+            e.kill(i);
+          }
+        } else if (e.state[i] === ST_HOVER) {
           g.threat[city]++;
-          spawnBrood(g, i, dt);
+          if (spawnBrood(g, i, dt) && ++e.cargo[i] >= CARRIER_BROODS) e.state[i] = ST_FLEE;
         } else if (moveTo(g, i, cx * rp.hoverAlt, cy * rp.hoverAlt, cz * rp.hoverAlt, spd, dt, 0.01, true)) {
           e.state[i] = ST_HOVER;
         }
@@ -346,12 +361,14 @@ export function updateAliens(g: Game, dt: number, realDt: number): void {
   }
 }
 
-/** Carriers and bosses launch small invaders of their own species. */
-function spawnBrood(g: Game, i: number, dt: number): void {
+const CARRIER_BROODS = 6;
+
+/** Carriers and bosses launch small invaders of their own species. Returns true when a brood launched. */
+function spawnBrood(g: Game, i: number, dt: number): boolean {
   const e = g.enemies;
   const rp = ALIENS[e.def[i]].roleParams;
   e.timer[i] += dt;
-  if (e.timer[i] < rp.spawnPeriod) return;
+  if (e.timer[i] < rp.spawnPeriod) return false;
   e.timer[i] -= rp.spawnPeriod;
   const species = SPECIES[e.species[i]].id;
   const child = ALIENS.findIndex((a) => a.species === species && a.role === 'invader');
@@ -365,4 +382,5 @@ function spawnBrood(g: Game, i: number, dt: number): void {
     }
   }
   g.emitFx(FX_WARP, e.x[i], e.y[i], e.z[i], 0, 0, 0, e.scale[i] * 0.5);
+  return true;
 }

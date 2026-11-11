@@ -32,7 +32,7 @@ export function readyEvolutions(g: Game): Offer[] {
   for (const evo of EVOLUTIONS) {
     const a = ws.findIndex((w) => w.def.id === evo.parents[0]);
     const b = ws.findIndex((w) => w.def.id === evo.parents[1]);
-    if (a < 0 || b < 0) continue;
+    if (a < 0 || b < 0 || g.arsenal.owns(evo.result)) continue;
     const ok = (i: number): boolean => isMaxTier(ws[i]) || (early && ws[i].tier >= 3);
     if (ok(a) && ok(b)) out.push({ kind: 'evolve', key: `e:${evo.id}`, evo, result: weaponById(evo.result), a, b });
   }
@@ -48,7 +48,7 @@ function candidates(g: Game, exclude: readonly string[]): Candidate[] {
   const a = g.arsenal;
   if (a.weapons.length < a.slots) {
     for (const w of BASE_WEAPONS) {
-      if (!a.owns(w.id) && g.isUnlocked(w.id, w.unlock)) push({ kind: 'weapon', key: `w:${w.id}`, weapon: w }, rarityWeight(g, w.rarity) * 0.8);
+      if (!a.owns(w.id) && !g.retired.has(w.id) && g.isUnlocked(w.id, w.unlock)) push({ kind: 'weapon', key: `w:${w.id}`, weapon: w }, rarityWeight(g, w.rarity) * 0.8);
     }
   }
   a.weapons.forEach((w, slot) => {
@@ -120,6 +120,8 @@ export function evolve(g: Game, a: number, b: number, result: WeaponDef): void {
   const ar = g.arsenal;
   const nameA = ar.weapons[a].def.name;
   const nameB = ar.weapons[b].def.name;
+  g.retired.add(ar.weapons[a].def.id);
+  g.retired.add(ar.weapons[b].def.id);
   const keep = ar.replace(a, result);
   keep.damageDealt = ar.weapons[a].damageDealt;
   ar.remove(b);

@@ -138,7 +138,7 @@ function fireAt(g: Game, s: number, ti: number, crit: boolean): void {
 }
 
 /** Damage plus every on-hit property of the weapon at enemy i. */
-function impact(g: Game, s: number, i: number, dmg: number, crit: boolean, allowSplit = true): void {
+function impact(g: Game, s: number, i: number, dmg: number, crit: boolean, allowSplit = true, allowChain = true): void {
   const e = g.enemies;
   if (!e.alive[i]) return;
   const w = g.arsenal.weapons[s];
@@ -174,12 +174,14 @@ function impact(g: Game, s: number, i: number, dmg: number, crit: boolean, allow
     blast(g, x, y, z, st.aoe, dmg * 0.6, type, s, i);
   }
   if (w.def.fire !== 'field' && st.fieldRadius > 0) spawnField(g, s, x, y, z, dmg * 0.3);
-  if (w.def.fire !== 'chain' && st.chainJumps > 0) chainArc(g, i, x, y, z, dmg * 0.6, st.chainJumps, st.chainRange, st.chainFalloff, s, type);
+  // Chain-on-hit arcs onward from this target; the target itself was already hit above.
+  if (allowChain && w.def.fire !== 'chain' && st.chainJumps > 0) chainArc(g, i, x, y, z, dmg * 0.6, st.chainJumps, st.chainRange, st.chainFalloff, s, type, false, false);
   if (allowSplit && st.split > 0) splitShards(g, s, i, x, y, z, dmg * 0.4, st.split);
 }
 
 /** Arc from a point to successive nearest enemies. `first` (if >= 0) is hit first. */
-export function chainArc(g: Game, first: number, x: number, y: number, z: number, dmg: number, jumps: number, range: number, falloff: number, slot: number, type: DamageType, crit = false): void {
+/** `hitFirst`: whether `first` still needs to be hit (false when called from an impact on it). */
+export function chainArc(g: Game, first: number, x: number, y: number, z: number, dmg: number, jumps: number, range: number, falloff: number, slot: number, type: DamageType, crit = false, hitFirst = true): void {
   const e = g.enemies;
   let cur = first;
   let px = x;
@@ -195,8 +197,10 @@ export function chainArc(g: Game, first: number, x: number, y: number, z: number
     const cy = e.y[cur];
     const cz = e.z[cur];
     if (j > 0 || first < 0) g.emitFx(FX_CHAIN, px, py, pz, cx, cy, cz, slot);
-    if (slot >= 0 && g.arsenal.weapons[slot] && j === 0 && first >= 0) impact(g, slot, cur, d, crit, false);
-    else damageEnemy(g, cur, d, type, slot);
+    if (j === 0 && first >= 0) {
+      // The primary target of a chain weapon gets the full on-hit treatment, but never chains again.
+      if (hitFirst && slot >= 0 && g.arsenal.weapons[slot]) impact(g, slot, cur, d, crit, false, false);
+    } else damageEnemy(g, cur, d, type, slot);
     px = cx;
     py = cy;
     pz = cz;

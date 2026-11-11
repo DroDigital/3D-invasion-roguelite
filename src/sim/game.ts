@@ -113,6 +113,8 @@ export class Game {
   banishes: number;
   pendingLevels = 0;
   readonly banished = new Set<string>();
+  /** Base weapons consumed by an evolution; they never return to the pool. */
+  readonly retired = new Set<string>();
 
   shop: ShopState | null = null;
   phaseTimer: number = WAVE_RULES.firstDelay;

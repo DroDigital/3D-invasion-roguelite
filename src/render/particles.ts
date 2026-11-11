@@ -119,7 +119,14 @@ export class Particles {
         }
         case FX_HIT: this.burst(x, y, z, 3, 0.2, 0.22, 2.0, 1.8, 1.0); break;
         case FX_SHIELD_HIT: this.burst(x, y, z, 4, 0.15, 0.3, 0.6, 1.6, 2.6); break;
-        case FX_MUZZLE: this.burst(x, y, z, 2, 0.08, 0.15, 1.2, 1.4, 2.0); break;
+        case FX_MUZZLE: {
+          // Muzzle flash grows with the firing weapon's tier.
+          const w = g.arsenal.weapons[p | 0];
+          const t = w ? (w.def.evolved ? 5 : w.tier) : 0;
+          const sc = w?.def.shot.color ?? [1.2, 1.4, 2.0];
+          this.burst(x, y, z, 2 + t, 0.08 + t * 0.02, 0.15 + t * 0.03, sc[0] * 0.6, sc[1] * 0.6, sc[2] * 0.6);
+          break;
+        }
         case FX_CITY_HIT: this.burst(x, y, z, 14, 0.12, 0.7, 2.6, 0.5, 0.2); break;
         case FX_BLAST: this.burst(x, y, z, Math.min(80, 30 + p * 200), 0.5 + p * 3, 0.45, 3.0, 1.6, 0.4); break;
         case FX_CRIT: this.burst(x, y, z, 8, 0.3, 0.3, 3.0, 3.0, 3.0); break;

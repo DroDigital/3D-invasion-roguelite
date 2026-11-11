@@ -4,6 +4,7 @@ export const PROGRESSION = {
   /** XP needed to go from `level` to the next. */
   xpBase: 4,
   xpPerLevel: 3,
+  xpQuad: 0.15,
   choices: 3,
   maxChoices: 5,
   rerolls: 3,
@@ -22,5 +23,6 @@ export const RARITY_WEIGHT: Record<Rarity, number> = {
 };
 
 export function xpForLevel(level: number): number {
-  return PROGRESSION.xpBase + PROGRESSION.xpPerLevel * level;
+  // Quadratic so late-game kill floods don't hand out hundreds of levels.
+  return Math.round(PROGRESSION.xpBase + PROGRESSION.xpPerLevel * level + PROGRESSION.xpQuad * level * level);
 }

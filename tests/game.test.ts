@@ -193,3 +193,44 @@ describe('content tables', () => {
     for (const a of ABILITIES) expect(a.cooldown).toBeGreaterThanOrEqual(45), expect(a.cooldown).toBeLessThanOrEqual(120);
   });
 });
+
+describe('evolution bookkeeping', () => {
+  it('retires both parents so the same evolution cannot be built twice', () => {
+    const g = new Game('RETIRE');
+    g.choose(0);
+    g.arsenal.weapons.length = 0;
+    g.arsenal.add(weaponById('drone_hive'))!.tier = 4;
+    g.arsenal.add(weaponById('flak_battery'))!.tier = 4;
+    g.offer = readyEvolutions(g);
+    g.offerKind = 'levelup';
+    g.choose(0);
+    expect(g.arsenal.weapons.map((w) => w.def.id)).toEqual(['swarm_carrier']);
+    expect(g.retired.has('drone_hive') && g.retired.has('flak_battery')).toBe(true);
+    for (let k = 0; k < 50; k++) {
+      g.offer = null;
+      g.pendingLevels = 1;
+      g.queueLevelUps();
+      expect(g.offer!.some((o) => o.kind === 'weapon' && (o.weapon.id === 'drone_hive' || o.weapon.id === 'flak_battery'))).toBe(false);
+    }
+  });
+});
+
+describe('every weapon fires safely', () => {
+  it('each base and evolved weapon kills a crowd without errors or runaway recursion', () => {
+    for (const w of WEAPONS) {
+      const g = new Game(`FIRE-${w.id}`);
+      g.choose(0);
+      g.arsenal.weapons.length = 0;
+      const o = g.arsenal.add(w)!;
+      o.tier = w.tiers.length - 1;
+      g.recompute();
+      g.xp = -1e9;
+      const bot = new Bot(1);
+      for (let i = 0; i < 60 * 40 && g.phase !== 'gameover'; i++) {
+        bot.act(g);
+        g.step(STEP);
+      }
+      expect(g.kills, w.id).toBeGreaterThan(0);
+    }
+  }, 120000);
+});

@@ -128,6 +128,8 @@ export class CombatView {
   private waveNext = 0;
   /** Weapon shot colours by slot, refreshed when the loadout changes. */
   private slotColor: Color[] = [];
+  /** Effect intensity per slot: grows with tier (evolved = 2). */
+  private slotPower: number[] = [];
   /** Camera shake requests, read by main.ts. */
   shake = 0;
   flash = 0;
@@ -237,12 +239,23 @@ export class CombatView {
       const slot = f[o + 7] | 0;
       const c = this.slotColor[slot] ?? col.set(2, 2, 2);
       switch (kind) {
-        case FX_BEAM:
-          this.addLine(f[o + 1], f[o + 2], f[o + 3], f[o + 4], f[o + 5], f[o + 6], c, 0.12 + (g.arsenal.weapons[slot]?.def.shot.width ?? 1) * 0.04);
+        case FX_BEAM: {
+          const pw = this.slotPower[slot] ?? 1;
+          const ttl = (0.12 + (g.arsenal.weapons[slot]?.def.shot.width ?? 1) * 0.04) * (0.8 + pw * 0.25);
+          this.addLine(f[o + 1], f[o + 2], f[o + 3], f[o + 4], f[o + 5], f[o + 6], c, ttl);
+          // Higher tiers fire a visibly heavier beam: a second, offset core line.
+          if (pw >= 1.6) {
+            const e = 0.006 * pw;
+            this.addLine(f[o + 1] + e, f[o + 2] + e, f[o + 3], f[o + 4] + e, f[o + 5] + e, f[o + 6], c, ttl * 0.8);
+          }
           break;
-        case FX_CHAIN:
-          this.addBolt(f[o + 1], f[o + 2], f[o + 3], f[o + 4], f[o + 5], f[o + 6], c, 0.18);
+        }
+        case FX_CHAIN: {
+          const pw = this.slotPower[slot] ?? 1;
+          this.addBolt(f[o + 1], f[o + 2], f[o + 3], f[o + 4], f[o + 5], f[o + 6], c, 0.14 + pw * 0.05);
+          if (pw >= 1.6) this.addBolt(f[o + 1], f[o + 2], f[o + 3], f[o + 4], f[o + 5], f[o + 6], c, 0.12);
           break;
+        }
         case FX_BOMB:
           this.addLine(f[o + 1], f[o + 2], f[o + 3], f[o + 4], f[o + 5], f[o + 6], col.set(3, 0.6, 0.3), 0.35);
           break;
@@ -306,7 +319,9 @@ export class CombatView {
         this.parent.add(v.mesh);
       }
       const sc = this.slotColor[i] ?? (this.slotColor[i] = new Color());
-      sc.setRGB(w.def.shot.color[0], w.def.shot.color[1], w.def.shot.color[2]);
+      const power = w.def.evolved ? 2 : 1 + w.tier * 0.22;
+      this.slotPower[i] = power;
+      sc.setRGB(w.def.shot.color[0], w.def.shot.color[1], w.def.shot.color[2]).multiplyScalar(0.75 + power * 0.25);
 
       const n = tierOf(w).emitters;
       const deploy = w.def.deploy;
@@ -460,8 +475,9 @@ export class CombatView {
       d.set(pr.dx[i], pr.dy[i], pr.dz[i]);
       q.setFromUnitVectors(FWD, d);
       const shot = w?.def.shot;
+      const pw = this.slotPower[pr.weapon[i]] ?? 1;
       if (pr.kind[i] === PK_DRONE) {
-        s.setScalar(0.022 * (shot?.width ?? 1));
+        s.setScalar(0.018 * (shot?.width ?? 1) * (0.8 + pw * 0.3));
         m.compose(p, q, s);
         this.drones.mesh.setMatrixAt(nd, m);
         this.drones.mesh.setColorAt(nd, shot ? col.setRGB(shot.color[0] * 0.5, shot.color[1] * 0.5, shot.color[2] * 0.5) : col.set(1, 1, 1));
@@ -469,8 +485,9 @@ export class CombatView {
         continue;
       }
       if (shot) {
-        s.set(shot.width * (pr.crit[i] ? 1.6 : 1), shot.width * (pr.crit[i] ? 1.6 : 1), shot.length);
-        col.setRGB(shot.color[0], shot.color[1], shot.color[2]);
+        const wd = shot.width * (pr.crit[i] ? 1.6 : 1) * (0.75 + pw * 0.3);
+        s.set(wd, wd, shot.length * (0.8 + pw * 0.25));
+        col.setRGB(shot.color[0], shot.color[1], shot.color[2]).multiplyScalar(0.75 + pw * 0.25);
       } else {
         s.setScalar(1);
         col.set(2, 2, 2);
