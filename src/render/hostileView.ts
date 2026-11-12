@@ -93,7 +93,7 @@ function tentacleMaterial(): ShaderMaterial {
         vec3 n = normalize(normalMatrix * mat3(instanceMatrix) * normal);
         float ndl = max(dot(n, sunView), 0.0);
         vL = ambient * 0.8 + sunColor * ndl;
-        vRim = pow(1.0 - max(dot(n, normalize(-mv.xyz)), 0.0), 2.2);
+        vRim = pow(max(1.0 - max(dot(n, normalize(-mv.xyz)), 0.0), 0.0), 2.2);
         vC = instanceColor;
         vGlow = step(1.2, instanceColor.g);
         vY = position.y;
@@ -143,9 +143,9 @@ function aegisMaterial(): ShaderMaterial {
       void main() {
         vec3 n = normalize(vP);
         float lat = asin(clamp(n.y, -1.0, 1.0));
-        vec2 uv = vec2(atan(n.z, n.x) * cos(lat), lat) * 9.0;
+        vec2 uv = vec2(atan(n.z + 1e-6, n.x) * cos(lat), lat) * 9.0;
         float lattice = hexEdge(uv);
-        float rim = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 3.0);
+        float rim = pow(max(1.0 - abs(dot(normalize(vN), normalize(vV))), 0.0), 3.0);
         float hit = 0.0;
         for (int k = 0; k < 8; k++) {
           float age = ages[k];

@@ -39,7 +39,7 @@ export function fresnel(geo: BufferGeometry, cap: number, power: number, strengt
       uniform float power; uniform float strength; uniform float time;
       varying vec3 vN; varying vec3 vV; varying vec3 vC; varying vec3 vP;
       void main() {
-        float rim = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), power);
+        float rim = pow(max(1.0 - abs(dot(normalize(vN), normalize(vV))), 0.0), power);
         float bands = 0.75 + 0.25 * sin(vP.y * 18.0 + time * 6.0);
         gl_FragColor = vec4(vC * rim * strength * bands, 1.0);
       }`,

@@ -64,7 +64,7 @@ void main() {
   vec3 n = normalize(mat3(viewMatrix) * mat3(modelMatrix) * mat3(im) * normal);
   // Per-vertex lighting, the PS2 way.
   float ndl = max(dot(n, sunView), 0.0);
-  float rim = pow(1.0 - max(dot(n, normalize(-mv.xyz)), 0.0), 3.0) * 0.35;
+  float rim = pow(max(1.0 - max(dot(n, normalize(-mv.xyz)), 0.0), 0.0), 3.0) * 0.35;
   vLight = ambient + sunColor * ndl + vec3(0.25, 0.35, 0.6) * rim;
   vData = instData;
 

@@ -79,7 +79,8 @@ export function createNebula(): Mesh {
       float fbm(vec3 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 5; i++) { s += a * noise(p); p = p * 2.07 + 3.1; a *= 0.5; } return s; }
       void main() {
         vec3 d = normalize(vDir);
-        float band = exp(-pow(d.y * 0.85 + d.x * 0.5, 2.0) * 6.0);
+        float bq = d.y * 0.85 + d.x * 0.5;
+        float band = exp(-bq * bq * 6.0);
         float n1 = fbm(d * 2.2 + 4.0);
         float n2 = fbm(d * 4.5 - 7.0);
         vec3 c = vec3(0.10, 0.04, 0.16) * smoothstep(0.42, 0.85, n1) + vec3(0.02, 0.09, 0.12) * smoothstep(0.45, 0.9, n2);

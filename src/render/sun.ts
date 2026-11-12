@@ -22,7 +22,7 @@ export function createSun(dir: Vector3): Mesh {
       varying vec2 vUv;
       void main() {
         float r = length(vUv);
-        float a = atan(vUv.y, vUv.x);
+        float a = atan(vUv.y + 1e-6, vUv.x + 1e-6);
         float disc = smoothstep(0.075, 0.065, r) * 9.0;
         float corona = exp(-r * 9.0) * 2.6 + exp(-r * 28.0) * 4.0;
         float rays = pow(0.5 + 0.5 * sin(a * 12.0 + sin(a * 5.0 + time * 0.3) * 1.5), 6.0) * exp(-r * 5.0) * 1.4;
