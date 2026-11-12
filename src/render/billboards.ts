@@ -34,7 +34,7 @@ float shapeRaw(float kind, vec2 uv, float t, float r) {
     float n = sin(uv.x * 9.0 + t * 3.0) * sin(uv.y * 8.0 - t * 2.0) * 0.18 + sin((uv.x + uv.y) * 17.0) * 0.08;
     return smoothstep(0.5, 0.05, r + n * 0.6);
   } else {
-    float a = atan(uv.y, uv.x);
+    float a = atan(uv.y + 1e-6, uv.x + 1e-6);
     float swirl = 0.5 + 0.5 * sin(a * 5.0 + r * 18.0 - t * 20.0);
     float disc = smoothstep(0.5, 0.2, r);
     return disc * (0.35 + swirl * 0.9) * smoothstep(0.0, 0.12, r) + smoothstep(0.06, 0.0, abs(r - 0.42)) * 1.2;

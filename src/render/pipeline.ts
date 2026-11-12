@@ -105,6 +105,8 @@ export class Pipeline {
         }
         void main() {
           vec3 c = texture2D(tScene, vUv).rgb;
+          // Light is never negative; keep any undefined value away from the tone curve and gamma.
+          c = max(c, vec3(0.0));
           if (bloom > 0.5) {
             // Three octaves: a tight core, a soft halo and a wide atmospheric veil that ties the scene together.
             c += texture2D(tBloom0, vUv).rgb * 0.5 + texture2D(tBloom1, vUv).rgb * 0.42;
@@ -148,7 +150,7 @@ export class Pipeline {
           c = min(c, vec3(1.0));
           if (dither > 0.5) {
             // Quantise to 5 bits per channel in sRGB-ish space with ordered dither: PS2 framebuffer look.
-            vec3 g = pow(c, vec3(1.0 / 2.2));
+            vec3 g = pow(max(c, vec3(0.0)), vec3(1.0 / 2.2));
             float levels = 31.0;
             g = floor(g * levels + bayer(vUv * res)) / levels;
             c = pow(clamp(g, 0.0, 1.0), vec3(2.2));
@@ -175,7 +177,7 @@ export class Pipeline {
             float col = mod(floor(vUv.x * outRes.x), 3.0);
             c *= col == 0.0 ? vec3(1.06, 0.97, 0.97) : col == 1.0 ? vec3(0.97, 1.06, 0.97) : vec3(0.97, 0.97, 1.06);
             vec2 v = vUv * (1.0 - vUv.yx);
-            c *= pow(v.x * v.y * 16.0, 0.12);
+            c *= pow(max(v.x * v.y * 16.0, 0.0), 0.12);
           } else {
             c = texture2D(tMap, vUv).rgb;
           }

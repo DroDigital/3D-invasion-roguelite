@@ -77,8 +77,10 @@ void main() {
   // Wind-ruffled water: a little normal noise breaks the glint into a shimmering field.
   float ripple = vnoise(lp * 140.0 + time * 0.2) - 0.5;
   vec3 h = normalize(sunDir + v);
-  float nh = max(dot(n, h), 0.0) + ripple * 0.02 * ocean;
-  float fresW = pow(1.0 - max(dot(n, v), 0.0), 5.0);
+  // Never hand pow() a negative base: the ripple term can dip nh below zero, and GLSL leaves
+  // that undefined (NaN on some GPUs, which the tone map then paints white).
+  float nh = max(max(dot(n, h), 0.0) + ripple * 0.02 * ocean, 0.0);
+  float fresW = pow(max(1.0 - max(dot(n, v), 0.0), 0.0), 5.0);
   float spec = (pow(nh, 90.0) * 0.9 + pow(nh, 14.0) * 0.08) * ocean * (0.6 + fresW * 2.0);
   // Deep water reads darker and bluer; land keeps a hint of relief from the albedo itself.
   vec3 base = mix(albedo, albedo * vec3(0.7, 0.85, 1.05), ocean * 0.6);
@@ -93,7 +95,7 @@ void main() {
   vec3 col = mix(night, lit, day);
 
   // Scars of the war: charred ground (R) and burning fires (G), stamped by impacts.
-  float phi = atan(lp.z, -lp.x);
+  float phi = atan(lp.z + 1e-6, -lp.x);
   if (phi < 0.0) phi += 6.2831853;
   vec2 suv = vec2(phi / 6.2831853, 1.0 - acos(clamp(lp.y, -1.0, 1.0)) / 3.1415927);
   vec4 sc = texture2D(scorchMap, suv);
@@ -102,10 +104,10 @@ void main() {
   col = mix(col, col * 0.1 + vec3(0.018, 0.012, 0.008), charV * 0.92);
   float heat = sc.g * (0.6 + grain * 0.7);
   float flick = 0.65 + 0.35 * sin(time * 9.0 + grain * 30.0);
-  col += (vec3(3.2, 1.0, 0.25) * pow(heat, 1.6) * flick * 1.5 + vec3(1.2, 0.22, 0.04) * heat * 0.5) * (1.0 - day * 0.35);
+  col += (vec3(3.2, 1.0, 0.25) * pow(max(heat, 0.0), 1.6) * flick * 1.5 + vec3(1.2, 0.22, 0.04) * heat * 0.5) * (1.0 - day * 0.35);
 
   // Scattering: blue rim on the lit limb, red-orange band at the terminator.
-  float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0);
+  float fres = pow(max(1.0 - max(dot(n, v), 0.0), 0.0), 3.0);
   // Aerial perspective: the limb hazes toward sky blue on the day side.
   col = mix(col, vec3(0.3, 0.55, 1.0) * (0.15 + 0.85 * day), fres * 0.55 * smoothstep(-0.2, 0.3, ndl));
   col += vec3(0.25, 0.5, 1.0) * fres * (0.1 + 0.6 * day);
