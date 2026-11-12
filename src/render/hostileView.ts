@@ -10,7 +10,7 @@ import { MAX_ENEMIES, ROLE_TENTACLE, ST_ATTACHED } from '../sim/enemies';
 import type { Game } from '../sim/game';
 import {
   FX_AEGIS, FX_AEGIS_DOWN, FX_BOSS_PHASE, FX_CRYO, FX_ELASER, FX_EMITTER_DOWN, FX_ESHOT, FX_FLAK, FX_IMPACT, FX_INTERCEPT,
-  FX_MINE, FX_NUKE, FX_PLACE, FX_SLAM, FX_STRIDE, FX_TENTACLE, FX_TESLA, FX_TURRET, FX_CITY_FALL, FX_CITY_HIT, FX_SCORCH, FX_STRIKE,
+  FX_FOCUS, FX_MINE, FX_NUKE, FX_PLACE, FX_SLAM, FX_STRIDE, FX_TENTACLE, FX_TESLA, FX_TURRET, FX_CITY_FALL, FX_CITY_HIT, FX_SCORCH, FX_STRIKE,
 } from '../sim/game';
 import { MAX_SHOTS, SHOT_MISSILE, SHOT_SIZE, SHOT_VOID } from '../sim/hostile';
 import { MAX_WRECKS } from '../sim/wrecks';
@@ -404,6 +404,9 @@ export class HostileView {
         case FX_PLACE:
           sp.spawn(SP_RING, x * 1.005, y * 1.005, z * 1.005, 0.01, Math.max(0.12, pr), 0.6, 0.8, 2.2, 2.6);
           break;
+        case FX_FOCUS:
+          sp.spawn(SP_RING, x * 1.01, y * 1.01, z * 1.01, 0.5, 0.05, 0.4, 0.6, 2.4, 2.6);
+          break;
         case FX_TURRET:
           this.lines.add(x, y, z, f[o + 4], f[o + 5], f[o + 6], 0.0018, 0.07, 3, 2.4, 1.0);
           if (this.rand() > busy) sp.spawn(SP_FLASH, f[o + 4], f[o + 5], f[o + 6], 0.01, 0.025, 0.08, 3, 2.2, 1);
@@ -645,6 +648,16 @@ export class HostileView {
       const armed = dg.mines[o + 3] <= 0;
       const bl = armed ? 0.5 + 0.5 * Math.max(0, Math.sin(t * 4 + k)) : 0.15;
       this.glow.push(dg.mines[o], dg.mines[o + 1], dg.mines[o + 2], armed ? 0.012 : 0.007, 2.6 * bl, 0.5 * bl, 0.3 * bl, SP_EMBER);
+    }
+    // Focus beacon: a pulsing reticle where the guns are told to look.
+    if (g.focusT > 0) {
+      const fade = Math.min(1, g.focusT / 1.5);
+      const pulse = 0.7 + 0.3 * Math.sin(t * 8);
+      const fx = g.focus[0] * 1.02;
+      const fy = g.focus[1] * 1.02;
+      const fz = g.focus[2] * 1.02;
+      this.glow.push(fx, fy, fz, 0.42 * pulse, 0.25 * fade, 0.9 * fade, 1.0 * fade, SP_RING);
+      this.glow.push(fx, fy, fz, 0.05, 0.6 * fade, 2.2 * fade, 2.6 * fade, SP_STAR);
     }
     // Placed consumables.
     let nh = 0;

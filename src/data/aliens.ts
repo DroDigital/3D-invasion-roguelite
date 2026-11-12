@@ -126,6 +126,7 @@ const HORRORS: { id: string; name: string; model: string; minWave: number; hp: n
   { id: 'horror_polyp', name: 'Elder Polyp', model: 'creature:polyp', minWave: 14, hp: 3600, tentacles: 6, regrow: 9, reach: 0.6, slam: 6, scale: 0.34, hoverAlt: 1.42, attack: { dmg: 2, period: 1.4, speed: 1.4, volley: 3 } },
   { id: 'horror_choir', name: 'The Drowned Choir', model: 'creature:choir', minWave: 18, hp: 4600, tentacles: 5, regrow: 8, reach: 0.7, slam: 7, scale: 0.36, hoverAlt: 1.6, attack: { dmg: 4, period: 1.8, speed: 1, volley: 4 }, spawn: 5 },
   { id: 'horror_hollow', name: 'The Hollow King', model: 'creature:hollow', minWave: 24, hp: 7000, tentacles: 8, regrow: 7, reach: 0.8, slam: 9, scale: 0.42, hoverAlt: 1.55, attack: { dmg: 5, period: 1.6, speed: 1.2, volley: 4 } },
+  { id: 'final_worldeater', name: 'The World-Eater', model: 'creature:eater', minWave: 99, hp: 60000, tentacles: 16, regrow: 5, reach: 1.4, slam: 18, scale: 0.62, hoverAlt: 2.1, attack: { dmg: 7, period: 1, speed: 1, volley: 8 }, elder: true, spawn: 12 },
   { id: 'elder_dreamer', name: 'The Dreamer in the Dark', model: 'creature:dreamer', minWave: 20, hp: 26000, tentacles: 12, regrow: 6, reach: 1.1, slam: 14, scale: 0.5, hoverAlt: 1.95, attack: { dmg: 7, period: 1.2, speed: 1, volley: 6 }, elder: true, spawn: 8 },
 ];
 (ALIENS as AlienDef[]).push(

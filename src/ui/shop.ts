@@ -2,6 +2,7 @@ import { audio } from '../audio/audio';
 import type { Game } from '../sim/game';
 import { rerollCost, ShopStock } from '../sim/shop';
 import { describeUpgrade } from './describe';
+import { describeReward } from '../sim/operations';
 import { button, h } from './dom';
 import { partnerStrip, weaponIcon } from './icons';
 
@@ -10,6 +11,7 @@ export class ShopScreen {
   readonly root = h('div');
   private cards = h('div', 'shop-cards');
   private armory = h('div', 'armory');
+  private opsEl = h('div', 'ops');
   private salvage = h('span', 'shop-salvage');
   private rerollBtn: HTMLButtonElement;
   private key = '';
@@ -41,7 +43,7 @@ export class ShopScreen {
     }, 'cmd primary');
     const foot = h('div', 'lu-foot');
     foot.append(this.rerollBtn, leave);
-    this.root.append(head, this.cards, this.armory, foot);
+    this.root.append(head, this.cards, this.armory, this.opsEl, foot);
     parent.append(this.root);
     window.addEventListener('keydown', this.onKey);
   }
@@ -54,7 +56,7 @@ export class ShopScreen {
   update(): void {
     const g = this.game;
     const s = g.shop;
-    const key = s ? `${s.stock.map((x) => x.name + x.sold).join(',')}|${s.armory.map((a) => a.def.id + a.bought).join(',')}|${g.items.map((it) => it.count).join(',')}|${Math.floor(g.salvage)}|${g.wave}` : '';
+    const key = s ? `${s.stock.map((x) => x.name + x.sold).join(',')}|${s.armory.map((a) => a.def.id + a.bought).join(',')}|${g.items.map((it) => it.count).join(',')}|${g.opChoice}|${g.ops.length}|${Math.floor(g.salvage)}|${g.wave}` : '';
     if (key === this.key) return;
     this.key = key;
     this.root.classList.toggle('on', !!s);
@@ -81,6 +83,26 @@ export class ShopScreen {
       row.append(el);
     });
     this.armory.append(row);
+
+    // Operations: choose how the next wave is fought. Harder operations pay out when it is cleared.
+    this.opsEl.textContent = '';
+    if (g.ops.length > 1) {
+      this.opsEl.append(h('h3', undefined, `NEXT WAVE ${g.wave + 1} // CHOOSE OPERATION`));
+      const orow = h('div', 'orow');
+      g.ops.forEach((op, i) => {
+        const el = h('div', `opcard${g.opChoice === i ? ' sel' : ''}`);
+        el.append(h('b', undefined, op.name), h('span', `risk r${op.risk}`, ['NO EXTRA RISK', 'RISK: ELEVATED', 'RISK: SEVERE'][op.risk]));
+        for (const d of op.directives) el.append(h('span', 'od', `+ ${d.name}: ${d.text}`));
+        if (op.rewards.length) el.append(h('span', 'orw', `REWARD: ${op.rewards.map(describeReward).join(' + ')}`));
+        else el.append(h('span', 'orw', 'No bonus.'));
+        el.addEventListener('click', () => {
+          g.chooseOp(i);
+          audio.play('ui_click', 0.6);
+        });
+        orow.append(el);
+      });
+      this.opsEl.append(orow);
+    }
   }
 
   private card(item: ShopStock, i: number): HTMLElement {

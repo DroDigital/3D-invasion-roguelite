@@ -6,6 +6,8 @@ import { gainSalvage, runTriggers } from './damage';
 import type { Game } from './game';
 import { SHOP_RULES } from '../data/shop';
 import { rollDirectives } from './directives';
+import { FINAL_WAVE, SECTORS } from '../data/campaign';
+import { payOperation } from './operations';
 
 /** Budget cost multiplier of each rarity tier. */
 const TIER_COST = [1, 2.2, 4.5, 10];
@@ -80,13 +82,17 @@ export function planWave(g: Game, r: Rng): void {
 
   // Horrors from the Outer Dark: scheduled mini-bosses, more of them late.
   let horrors = g.dir.horrors;
-  if (wave >= WAVE_RULES.horrorFrom && (wave - WAVE_RULES.horrorFrom) % WAVE_RULES.horrorEvery === 0) horrors += 1 + Math.floor((wave - WAVE_RULES.horrorFrom) / 12);
+  const horrorFrom = g.threatLevel >= 5 ? 7 : WAVE_RULES.horrorFrom;
+  if (wave >= horrorFrom && (wave - horrorFrom) % WAVE_RULES.horrorEvery === 0) horrors += 1 + Math.floor((wave - horrorFrom) / 12);
   if (wave > 30 && !boss) horrors += 1;
   const pool = ALIENS.map((a, i) => ({ a, i })).filter(({ a }) => a.role === 'horror' && !a.elder && a.minWave <= wave);
   for (let k = 0; k < horrors && pool.length; k++) queue.push({ def: r.pick(pool).i, tier: 0, cluster: cluster++ });
   // Great Old Ones wake on late boss waves.
-  if (boss && wave >= WAVE_RULES.elderFrom) {
-    const elder = ALIENS.findIndex((a) => a.elder);
+  if (wave === FINAL_WAVE && !g.endless) {
+    // The final battle: the World-Eater itself.
+    queue.push({ def: ALIENS.findIndex((a) => a.id === 'final_worldeater'), tier: 0, cluster: cluster++ });
+  } else if (boss && wave >= WAVE_RULES.elderFrom) {
+    const elder = ALIENS.findIndex((a) => a.id === 'elder_dreamer');
     if (elder >= 0) queue.push({ def: elder, tier: 0, cluster: cluster++ });
   }
 
@@ -125,7 +131,7 @@ export function planWave(g: Game, r: Rng): void {
     [groups[k], groups[j]] = [groups[j], groups[k]];
   }
   // Bosses always lead.
-  const lead = (q: Game['spawnQueue']): number => (ALIENS[q[0].def].role === 'boss' || ALIENS[q[0].def].elder ? 2 : ALIENS[q[0].def].mothership || ALIENS[q[0].def].role === 'horror' ? 1 : 0);
+  const lead = (q: Game['spawnQueue']): number => (ALIENS[q[0].def].id === 'final_worldeater' ? 3 : ALIENS[q[0].def].role === 'boss' || ALIENS[q[0].def].elder ? 2 : ALIENS[q[0].def].mothership || ALIENS[q[0].def].role === 'horror' ? 1 : 0);
   groups.sort((a, b) => lead(b) - lead(a));
   g.spawnQueue = groups.flat();
   const duration = Math.min(34, WAVE_RULES.duration + wave * 0.5);
@@ -192,6 +198,13 @@ export function startWave(g: Game): void {
   g.wave++;
   g.waveSalvageRaw = 0;
   g.bonusAllies = 0;
+  g.activeOp = g.ops[g.opChoice] ?? null;
+  if (g.activeOp && g.activeOp.risk === 0) g.activeOp = null;
+  g.ops = [];
+  const sector = SECTORS.find((s) => s.from === g.wave);
+  if (sector) g.addLog(sector.name, 'boss');
+  if (g.wave === FINAL_WAVE && !g.endless) g.addLog('FINAL BATTLE: THE WORLD-EATER DESCENDS', 'boss');
+  if (g.activeOp) g.addLog(`${g.activeOp.name} UNDER WAY`, 'warn');
   rollDirectives(g);
   planWave(g, g.waveRng);
   g.phase = 'spawning';
@@ -215,6 +228,13 @@ export function updateWaves(g: Game, dt: number): void {
   } else if (g.phase === 'clearing' && g.enemies.count === 0) {
     gainSalvage(g, Math.min(SHOP_RULES.clearMax, SHOP_RULES.clearBonus + SHOP_RULES.clearPerWave * g.wave), true);
     g.addLog(`WAVE ${g.wave} CLEARED`, 'good');
+    payOperation(g);
+    if (g.wave === FINAL_WAVE && !g.endless) {
+      g.won = true;
+      g.phase = 'victory';
+      g.addLog('EARTH HOLDS. THE INVASION IS BROKEN.', 'good');
+      return;
+    }
     g.onWaveCleared();
   }
 }

@@ -13,6 +13,7 @@ import { ARMORY_RULES, CONSUMABLES } from '../data/consumables';
 import type { ConsumableDef } from '../data/types';
 import { defenseIsMax } from './defense';
 import { addItem } from './consumables';
+import { rollOperations } from './operations';
 
 export interface ShopStock {
   def: ShopItemDef;
@@ -132,8 +133,10 @@ function rollStock(g: Game): ShopStock[] {
     const item = resolve(g, def, taken);
     if (item) out.push(item);
   }
-  // Every boss wave guarantees a relic on the shelf.
-  if (g.wave % WAVE_RULES.bossEvery === 0 && !out.some((s) => s.def.kind === 'relic')) {
+  // Every boss wave (and some operations) guarantee a relic on the shelf.
+  const owed = g.relicOwed;
+  g.relicOwed = false;
+  if ((owed || g.wave % WAVE_RULES.bossEvery === 0) && !out.some((s) => s.def.kind === 'relic')) {
     const relic = resolve(g, SHOP_ITEMS.find((d) => d.kind === 'relic')!, taken);
     if (relic) out[out.length - 1] = relic;
   }
@@ -169,6 +172,7 @@ export function buyArmory(g: Game, i: number): boolean {
 
 export function openShop(g: Game): void {
   g.shop = { stock: rollStock(g), armory: rollArmory(g), rerolls: 0, freeReroll: g.build.rules.has('freeShopReroll') };
+  rollOperations(g);
   g.phase = 'shop';
 }
 

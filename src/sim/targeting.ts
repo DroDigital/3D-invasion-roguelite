@@ -9,6 +9,19 @@ const density = new Float32Array(MAX_ENEMIES);
 const DENSITY_R2 = 0.25 * 0.25;
 const SAMPLE = 48;
 const ENGAGE2 = WAVE_RULES.engageRadius * WAVE_RULES.engageRadius;
+/** Focus beacon: aliens within this angle of the marked point are engaged first. */
+const FOCUS_COS = Math.cos(0.45);
+let focusOn = false;
+let fx = 0;
+let fy = 0;
+let fz = 0;
+
+export function setTargetFocus(on: boolean, x = 0, y = 0, z = 0): void {
+  focusOn = on;
+  fx = x;
+  fy = y;
+  fz = z;
+}
 
 function distToCity(e: EnemyPool, c: CityState, i: number): number {
   if (e.state[i] === ST_SIEGE) return -1;
@@ -74,7 +87,11 @@ export function selectTargets(rule: TargetRule, k: number, e: EnemyPool, c: City
       if (!e.alive[i] || picked[i] || e.cloaked[i] || e.pending[i] >= e.hp[i] + e.shield[i]) continue;
       // Out past sensor range ships can't be engaged yet.
       if (e.x[i] * e.x[i] + e.y[i] * e.y[i] + e.z[i] * e.z[i] > ENGAGE2) continue;
-      const s = score(rule, e, c, i, rng);
+      let s = score(rule, e, c, i, rng);
+      if (focusOn) {
+        const r = Math.hypot(e.x[i], e.y[i], e.z[i]) || 1;
+        if ((e.x[i] * fx + e.y[i] * fy + e.z[i] * fz) / r > FOCUS_COS) s -= 1e12;
+      }
       if (s < bestScore) {
         bestScore = s;
         best = i;

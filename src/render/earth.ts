@@ -7,6 +7,7 @@ import {
   LinearFilter,
   LinearMipmapLinearFilter,
   Mesh,
+  NearestFilter,
   RepeatWrapping,
   RGBAFormat,
   ShaderMaterial,
@@ -264,8 +265,10 @@ export class Earth {
   private cloudMat: ShaderMaterial;
   private earthMat: ShaderMaterial;
   readonly scorch = new ScorchMap();
+  private maps: Texture[] = [];
 
   constructor(dayMap: Texture, nightMap: Texture) {
+    this.maps = [dayMap, nightMap];
     for (const t of [dayMap, nightMap]) {
       t.colorSpace = SRGBColorSpace;
       t.magFilter = LinearFilter;
@@ -307,6 +310,16 @@ export class Earth {
     );
 
     this.root.add(this.surface, this.clouds, atmo);
+  }
+
+  /** Retro: chunky nearest-neighbour texels; HD: smooth mipmapped filtering. */
+  setRetro(on: boolean): void {
+    for (const t of this.maps) {
+      t.magFilter = on ? NearestFilter : LinearFilter;
+      t.minFilter = on ? NearestFilter : LinearMipmapLinearFilter;
+      t.generateMipmaps = !on;
+      t.needsUpdate = true;
+    }
   }
 
   update(dt: number, time: number): void {

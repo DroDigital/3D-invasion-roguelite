@@ -430,3 +430,30 @@ button.cmd:disabled { opacity: 0.3; cursor: default; pointer-events: none; }
 .aitem b { color: #fff; font-weight: normal; letter-spacing: 1px; font-size: 10px; }
 .aitem .ap { color: var(--amber); }
 .aitem .at { color: var(--muted); line-height: 1.3; }
+
+#hud-wave .wave-sector { font-size: 8px; letter-spacing: 2px; color: var(--muted); margin-top: 2px; }
+.trow .tperk { font-size: 8px; color: var(--acc-2); opacity: 0.7; width: 22px; letter-spacing: 1px; }
+.chip.perk { color: var(--acc-2); }
+#gameover.victory h2 { color: var(--amber); text-shadow: 0 0 18px rgba(255, 184, 77, 0.7); }
+.ops { margin-top: 10px; }
+.ops h3 { font-size: 11px; letter-spacing: 3px; color: var(--acc-2); margin: 0 0 6px; font-weight: normal; }
+.ops .orow { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.opcard {
+  width: 230px; padding: 8px 10px; border: 1px solid var(--line); background: rgba(10, 30, 36, 0.6);
+  cursor: pointer; display: flex; flex-direction: column; gap: 4px; font-size: 9px;
+}
+.opcard:hover { border-color: var(--acc-2); }
+.opcard.sel { border-color: var(--acc-2); box-shadow: 0 0 14px rgba(138, 248, 255, 0.35); background: rgba(138, 248, 255, 0.08); }
+.opcard b { font-weight: normal; color: #fff; letter-spacing: 2px; font-size: 10px; }
+.opcard .risk { letter-spacing: 2px; }
+.opcard .risk.r0 { color: var(--muted); }
+.opcard .risk.r1 { color: var(--amber); }
+.opcard .risk.r2 { color: var(--red); }
+.opcard .od { color: #ffb3c8; }
+.opcard .orw { color: var(--acc); }
+.threat-sel { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+.threat-sel button { font-size: 9px; padding: 4px 6px; }
+.threat-sel button.sel { color: var(--red); border-color: var(--red); }
+.threat-sel .tdesc { width: 100%; font-size: 9px; color: var(--muted); margin-top: 2px; }
+.tdesc-solo { font-size: 10px; color: var(--muted); line-height: 1.5; }
+#gameover.victory .panel { border-color: var(--amber); box-shadow: 0 0 30px rgba(255, 184, 77, 0.25); }

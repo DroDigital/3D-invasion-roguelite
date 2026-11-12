@@ -2,7 +2,7 @@ import type { Settings } from '../core/save';
 import { button, h } from './dom';
 
 const TOGGLES: [keyof Settings, string][] = [
-  ['hd', 'HIGH DEFINITION (OFF = RETRO 480 LINES)'],
+  ['hd', 'HIGH DEFINITION (OFF = RETRO PS2 LOOK)'],
   ['dither', 'DITHER (RETRO: COLOUR QUANTISE)'],
   ['crt', 'CRT / SCANLINES'],
   ['vertexSnap', 'VERTEX SNAPPING'],
