@@ -2,7 +2,8 @@ import { audioIds, audioUrl } from '../core/assets';
 import type { Game } from '../sim/game';
 import {
   FX_BLAST, FX_CITY_FALL, FX_CITY_HIT, FX_CITY_SHIELD, FX_EMP, FX_ESCAPE, FX_EVOLVE, FX_EXPLOSION, FX_HIT,
-  FX_SHIELD_HIT, FX_SHOT, FX_STRIDE, FX_STRIKE,
+  FX_SHIELD_HIT, FX_SHOT, FX_STRIDE, FX_STRIKE, FX_IMPACT, FX_ELASER, FX_AEGIS, FX_EMITTER_DOWN, FX_SLAM, FX_BOSS_PHASE,
+  FX_NUKE, FX_CRYO, FX_MINE, FX_TESLA, FX_INTERCEPT, FX_AEGIS_DOWN, FX_ESHOT, FX_FLAK,
 } from '../sim/game';
 
 /** Minimum seconds between two plays of the same sound, so 600 ships don't make 600 explosions. */
@@ -124,6 +125,20 @@ export class Audio {
         case FX_EMP: this.play('emp', 0.8); break;
         case FX_EVOLVE: this.play('evolve', 0.9); break;
         case FX_CITY_SHIELD: this.play('shield', 0.8); break;
+        case FX_IMPACT: this.play(f[o + 7] > 0.06 ? 'explode_big' : 'explode_small', Math.min(0.8, 0.2 + f[o + 7] * 3), 0.7); break;
+        case FX_ELASER: this.play('hit', 0.35, 0.5); break;
+        case FX_ESHOT: this.play('hit', 0.12, 0.7); break;
+        case FX_AEGIS: this.play('shield', 0.25, 1.6); break;
+        case FX_AEGIS_DOWN: this.play('alarm', 0.6); break;
+        case FX_EMITTER_DOWN: this.play('explode_small', 0.6, 0.6); break;
+        case FX_SLAM: this.play('explode_big', 0.55, 0.5); break;
+        case FX_BOSS_PHASE: this.play('alarm', 0.7, 0.8); this.play('explode_big', 0.8, 0.6); break;
+        case FX_NUKE: this.play('explode_big', 1, 0.5); break;
+        case FX_CRYO: this.play('emp', 0.7, 1.4); break;
+        case FX_MINE: this.play('explode_small', 0.35, 1.1); break;
+        case FX_TESLA: this.play('hit', 0.15, 1.8); break;
+        case FX_INTERCEPT: this.play('explode_small', 0.2, 1.4); break;
+        case FX_FLAK: this.play('hit', 0.08, 2); break;
       }
     }
   }

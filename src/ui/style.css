@@ -391,3 +391,42 @@ button.cmd:disabled { opacity: 0.3; cursor: default; pointer-events: none; }
   .menu-cols { flex-direction: column; overflow-y: auto; }
   .menu-col { width: 100%; }
 }
+
+/* ---------- directives, defense grid, consumables ---------- */
+#hud-pop .directives { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
+#hud-pop .directives:not(:empty) { margin-top: 7px; }
+.dchip {
+  pointer-events: auto; font-size: 9px; letter-spacing: 2px; padding: 2px 6px; color: #ffb3c8;
+  border: 1px solid rgba(255, 92, 130, 0.45); background: rgba(255, 60, 100, 0.08); cursor: default;
+}
+.dchip:hover { border-color: #ff5c82; color: #fff; }
+.phead.sub { margin-top: 8px; font-size: 9px; opacity: 0.8; }
+.wicon.dicon { background: rgba(138, 248, 255, 0.12); color: var(--acc-2); border: 1px solid rgba(138, 248, 255, 0.4); }
+.tile.def .pips i.on { background: var(--acc-2); box-shadow: 0 0 4px var(--acc-2); }
+.tshare.aegis i { background: linear-gradient(90deg, #4fb8ff, #a8f4ff); }
+.items { display: flex; gap: 8px; align-items: flex-end; }
+.item {
+  pointer-events: auto; position: relative; width: 56px; height: 62px; cursor: pointer; overflow: hidden;
+  background: var(--glass); border: 1px solid rgba(255, 184, 77, 0.35); backdrop-filter: blur(4px);
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 4px 3px; gap: 2px;
+}
+.item:hover { border-color: var(--amber); box-shadow: 0 0 12px rgba(255, 184, 77, 0.3); }
+.item .key { position: absolute; top: 3px; left: 3px; font-size: 9px; color: #120a02; background: var(--amber); padding: 0 4px; }
+.item .cnt { position: absolute; top: 3px; right: 4px; font-size: 10px; color: var(--amber); }
+.item .ico { font-size: 15px; color: #fff; letter-spacing: 1px; text-shadow: 0 0 8px rgba(255, 184, 77, 0.7); margin-bottom: 2px; }
+.item .aname { font-size: 7px; letter-spacing: 0.5px; text-align: center; line-height: 1.15; color: var(--muted); }
+.item.targeting { border-color: var(--acc-2); box-shadow: 0 0 18px var(--acc-2); animation: blink 0.5s steps(2) infinite; }
+.lu-card.defense { border-color: rgba(138, 248, 255, 0.55); }
+.lu-card.overdrive { border-color: rgba(255, 92, 130, 0.6); }
+.armory { margin-top: 10px; }
+.armory h3 { font-size: 11px; letter-spacing: 3px; color: var(--amber); margin: 0 0 6px; font-weight: normal; }
+.armory .arow { display: flex; gap: 8px; flex-wrap: wrap; }
+.aitem {
+  width: 150px; padding: 6px 8px; border: 1px solid rgba(255, 184, 77, 0.35); background: rgba(255, 184, 77, 0.05);
+  cursor: pointer; display: flex; flex-direction: column; gap: 3px; font-size: 9px;
+}
+.aitem:hover { border-color: var(--amber); }
+.aitem.poor { opacity: 0.45; cursor: default; }
+.aitem b { color: #fff; font-weight: normal; letter-spacing: 1px; font-size: 10px; }
+.aitem .ap { color: var(--amber); }
+.aitem .at { color: var(--muted); line-height: 1.3; }

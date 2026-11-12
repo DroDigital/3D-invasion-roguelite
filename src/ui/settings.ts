@@ -2,7 +2,8 @@ import type { Settings } from '../core/save';
 import { button, h } from './dom';
 
 const TOGGLES: [keyof Settings, string][] = [
-  ['dither', 'DITHER + COLOUR QUANTISE'],
+  ['hd', 'HIGH DEFINITION (OFF = RETRO 480 LINES)'],
+  ['dither', 'DITHER (RETRO: COLOUR QUANTISE)'],
   ['crt', 'CRT / SCANLINES'],
   ['vertexSnap', 'VERTEX SNAPPING'],
   ['affine', 'AFFINE TEXTURE WARP'],

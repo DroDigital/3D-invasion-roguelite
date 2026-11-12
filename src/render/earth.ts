@@ -1,9 +1,14 @@
 import {
   AdditiveBlending,
   BackSide,
+  ClampToEdgeWrapping,
+  DataTexture,
   Group,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   Mesh,
-  NearestFilter,
+  RepeatWrapping,
+  RGBAFormat,
   ShaderMaterial,
   SphereGeometry,
   SRGBColorSpace,
@@ -49,10 +54,14 @@ void main() {
 const EARTH_FRAG = /* glsl */ `
 uniform sampler2D dayMap;
 uniform sampler2D nightMap;
+uniform sampler2D scorchMap;
 uniform vec3 sunDir;
+uniform float time;
 varying vec2 vUv;
 varying vec3 vWorldNormal;
 varying vec3 vWorldPos;
+varying vec3 vLocalPos;
+${NOISE_GLSL}
 void main() {
   vec3 n = normalize(vWorldNormal);
   vec3 v = normalize(cameraPosition - vWorldPos);
@@ -63,22 +72,44 @@ void main() {
 
   // Ocean glint: Blue Marble oceans are much bluer than they are red.
   float ocean = smoothstep(0.02, 0.12, albedo.b - albedo.r);
+  vec3 lp = normalize(vLocalPos);
+  // Wind-ruffled water: a little normal noise breaks the glint into a shimmering field.
+  float ripple = vnoise(lp * 140.0 + time * 0.2) - 0.5;
   vec3 h = normalize(sunDir + v);
-  float spec = pow(max(dot(n, h), 0.0), 48.0) * ocean * 0.55;
-
-  vec3 lit = albedo * (0.04 + 1.15 * max(ndl, 0.0)) + vec3(1.0, 0.92, 0.8) * spec;
+  float nh = max(dot(n, h), 0.0) + ripple * 0.02 * ocean;
+  float fresW = pow(1.0 - max(dot(n, v), 0.0), 5.0);
+  float spec = (pow(nh, 90.0) * 0.9 + pow(nh, 14.0) * 0.08) * ocean * (0.6 + fresW * 2.0);
+  // Deep water reads darker and bluer; land keeps a hint of relief from the albedo itself.
+  vec3 base = mix(albedo, albedo * vec3(0.7, 0.85, 1.05), ocean * 0.6);
+  float relief = (1.0 - ocean) * (vnoise(lp * 60.0) - 0.5) * 0.18;
+  vec3 lit = base * (0.035 + 1.15 * max(ndl, 0.0)) * (1.0 + relief) + vec3(1.0, 0.9, 0.75) * spec * max(ndl, 0.0);
   // City lights: warm, only on the night side.
   // The night map carries a dim blue land tint with almost no red; city lights
   // are neutral grey, so the (linear) red channel isolates them.
   float glow = smoothstep(0.006, 0.11, lights.r);
-  vec3 night = vec3(1.0, 0.78, 0.42) * glow * 2.4 + albedo * vec3(0.012, 0.016, 0.03);
+  float twinkle = 0.85 + 0.15 * vnoise(lp * 300.0 + time * 0.7);
+  vec3 night = vec3(1.0, 0.76, 0.4) * glow * 2.4 * twinkle + albedo * vec3(0.012, 0.016, 0.03);
   vec3 col = mix(night, lit, day);
+
+  // Scars of the war: charred ground (R) and burning fires (G), stamped by impacts.
+  float phi = atan(lp.z, -lp.x);
+  if (phi < 0.0) phi += 6.2831853;
+  vec2 suv = vec2(phi / 6.2831853, 1.0 - acos(clamp(lp.y, -1.0, 1.0)) / 3.1415927);
+  vec4 sc = texture2D(scorchMap, suv);
+  float grain = vnoise(lp * 220.0);
+  float charV = smoothstep(0.04, 0.55, sc.r * (0.75 + grain * 0.5));
+  col = mix(col, col * 0.1 + vec3(0.018, 0.012, 0.008), charV * 0.92);
+  float heat = sc.g * (0.6 + grain * 0.7);
+  float flick = 0.65 + 0.35 * sin(time * 9.0 + grain * 30.0);
+  col += (vec3(3.2, 1.0, 0.25) * pow(heat, 1.6) * flick * 1.5 + vec3(1.2, 0.22, 0.04) * heat * 0.5) * (1.0 - day * 0.35);
 
   // Scattering: blue rim on the lit limb, red-orange band at the terminator.
   float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0);
-  col += vec3(0.25, 0.5, 1.0) * fres * (0.15 + 0.85 * day);
+  // Aerial perspective: the limb hazes toward sky blue on the day side.
+  col = mix(col, vec3(0.3, 0.55, 1.0) * (0.15 + 0.85 * day), fres * 0.55 * smoothstep(-0.2, 0.3, ndl));
+  col += vec3(0.25, 0.5, 1.0) * fres * (0.1 + 0.6 * day);
   float term = smoothstep(-0.15, 0.05, ndl) * (1.0 - smoothstep(0.05, 0.35, ndl));
-  col += vec3(0.9, 0.35, 0.12) * term * 0.05;
+  col += vec3(0.9, 0.35, 0.12) * term * 0.06;
 
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -133,6 +164,97 @@ void main() {
 
 export const EARTH_SPIN_RATE = 0.02; // rad/s, one turn in about five minutes
 
+const SCORCH_W = 512;
+const SCORCH_H = 256;
+
+/**
+ * Equirectangular burn map in the planet's own frame: impacts char the ground (R) and set
+ * fires (G) that flicker and die down. Updated on the CPU at 15 Hz.
+ */
+export class ScorchMap {
+  readonly data = new Uint8Array(SCORCH_W * SCORCH_H * 4);
+  readonly texture = new DataTexture(this.data, SCORCH_W, SCORCH_H, RGBAFormat);
+  private acc = 0;
+  private hot = false;
+  private dirty = false;
+
+  constructor() {
+    this.texture.magFilter = LinearFilter;
+    this.texture.minFilter = LinearFilter;
+    this.texture.wrapS = RepeatWrapping;
+    this.texture.wrapT = ClampToEdgeWrapping;
+    this.texture.needsUpdate = true;
+  }
+
+  reset(): void {
+    this.data.fill(0);
+    this.texture.needsUpdate = true;
+    this.hot = false;
+  }
+
+  /** Burn a disc of `radius` (Earth radii) around unit-ish point (x,y,z). */
+  stamp(x: number, y: number, z: number, radius: number, charAmt: number, heatAmt: number): void {
+    const l = Math.hypot(x, y, z) || 1;
+    const nx = x / l;
+    const ny = y / l;
+    const nz = z / l;
+    let phi = Math.atan2(nz, -nx);
+    if (phi < 0) phi += Math.PI * 2;
+    const theta = Math.acos(Math.max(-1, Math.min(1, ny)));
+    const cx = (phi / (Math.PI * 2)) * SCORCH_W;
+    const cy = (1 - theta / Math.PI) * SCORCH_H;
+    const ry = Math.max(1.2, (radius / Math.PI) * SCORCH_H);
+    const rx = Math.min(SCORCH_W / 2, ry / Math.max(0.12, Math.sin(theta)));
+    const d = this.data;
+    for (let py = Math.floor(cy - ry); py <= Math.ceil(cy + ry); py++) {
+      if (py < 0 || py >= SCORCH_H) continue;
+      const fy = (py + 0.5 - cy) / ry;
+      for (let px = Math.floor(cx - rx); px <= Math.ceil(cx + rx); px++) {
+        const fx = (px + 0.5 - cx) / rx;
+        const r2 = fx * fx + fy * fy;
+        if (r2 >= 1) continue;
+        // Ragged edge: a cheap hash keeps craters from looking stamped.
+        const hsh = ((px * 73856093) ^ (py * 19349663)) & 1023;
+        const f = (1 - r2) * (0.75 + (hsh / 1023) * 0.5);
+        const o = ((py * SCORCH_W + (((px % SCORCH_W) + SCORCH_W) % SCORCH_W)) * 4) | 0;
+        d[o] = Math.min(255, d[o] + charAmt * f * 255);
+        d[o + 1] = Math.max(d[o + 1], Math.min(255, heatAmt * f * 255));
+      }
+    }
+    if (heatAmt > 0) this.hot = true;
+    this.dirty = true;
+  }
+
+  update(dt: number): void {
+    this.acc += dt;
+    if (this.acc < 1 / 15) {
+      if (this.dirty) {
+        this.texture.needsUpdate = true;
+        this.dirty = false;
+      }
+      return;
+    }
+    this.acc = 0;
+    if (this.hot) {
+      // Fires burn down over about ten seconds.
+      let any = false;
+      const d = this.data;
+      for (let o = 1; o < d.length; o += 4) {
+        const v = d[o];
+        if (v === 0) continue;
+        d[o] = v > 3 ? v - Math.max(1, v >> 6) : 0;
+        any = true;
+      }
+      this.hot = any;
+      this.dirty = true;
+    }
+    if (this.dirty) {
+      this.texture.needsUpdate = true;
+      this.dirty = false;
+    }
+  }
+}
+
 export class Earth {
   /** Everything fixed to the planet surface (cities, ground batteries) parents here. */
   readonly surface = new Group();
@@ -140,22 +262,26 @@ export class Earth {
   readonly sunDir = new Vector3(1, 0.28, 0.55).normalize();
   private clouds: Mesh;
   private cloudMat: ShaderMaterial;
+  private earthMat: ShaderMaterial;
+  readonly scorch = new ScorchMap();
 
   constructor(dayMap: Texture, nightMap: Texture) {
     for (const t of [dayMap, nightMap]) {
       t.colorSpace = SRGBColorSpace;
-      t.magFilter = NearestFilter;
-      t.minFilter = NearestFilter;
-      t.generateMipmaps = false;
+      t.magFilter = LinearFilter;
+      t.minFilter = LinearMipmapLinearFilter;
+      t.generateMipmaps = true;
+      t.anisotropy = 4;
+      t.needsUpdate = true;
     }
 
-    // Deliberately coarse sphere: the silhouette should read as low-poly.
-    const geo = new SphereGeometry(1, 40, 28);
+    const geo = new SphereGeometry(1, 128, 80);
     const earthMat = new ShaderMaterial({
-      uniforms: { dayMap: { value: dayMap }, nightMap: { value: nightMap }, sunDir: { value: this.sunDir } },
+      uniforms: { dayMap: { value: dayMap }, nightMap: { value: nightMap }, scorchMap: { value: this.scorch.texture }, sunDir: { value: this.sunDir }, time: { value: 0 } },
       vertexShader: SURFACE_VERT,
       fragmentShader: EARTH_FRAG,
     });
+    this.earthMat = earthMat;
     this.surface.add(new Mesh(geo, earthMat));
 
     this.cloudMat = new ShaderMaterial({
@@ -165,10 +291,10 @@ export class Earth {
       transparent: true,
       depthWrite: false,
     });
-    this.clouds = new Mesh(new SphereGeometry(1.014, 40, 28), this.cloudMat);
+    this.clouds = new Mesh(new SphereGeometry(1.014, 96, 64), this.cloudMat);
 
     const atmo = new Mesh(
-      new SphereGeometry(1.15, 40, 28),
+      new SphereGeometry(1.15, 96, 64),
       new ShaderMaterial({
         uniforms: { sunDir: { value: this.sunDir } },
         vertexShader: ATMO_VERT,
@@ -188,5 +314,7 @@ export class Earth {
     // Clouds drift slightly faster than the ground.
     this.clouds.rotation.y += EARTH_SPIN_RATE * 1.25 * dt;
     this.cloudMat.uniforms.time.value = time;
+    this.earthMat.uniforms.time.value = time;
+    this.scorch.update(dt);
   }
 }

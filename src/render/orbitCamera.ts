@@ -1,7 +1,7 @@
 import { PerspectiveCamera, Vector3 } from 'three';
 
 const MIN_DIST = 1.75;
-const MAX_ZOOM = 7;
+const MAX_ZOOM = 13;
 const MAX_PITCH = 1.45;
 
 /** Drag to rotate, scroll or pinch to zoom, both with inertia. */

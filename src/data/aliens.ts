@@ -126,7 +126,7 @@ const HORRORS: { id: string; name: string; model: string; minWave: number; hp: n
   { id: 'horror_polyp', name: 'Elder Polyp', model: 'creature:polyp', minWave: 14, hp: 3600, tentacles: 6, regrow: 9, reach: 0.6, slam: 6, scale: 0.34, hoverAlt: 1.42, attack: { dmg: 2, period: 1.4, speed: 1.4, volley: 3 } },
   { id: 'horror_choir', name: 'The Drowned Choir', model: 'creature:choir', minWave: 18, hp: 4600, tentacles: 5, regrow: 8, reach: 0.7, slam: 7, scale: 0.36, hoverAlt: 1.6, attack: { dmg: 4, period: 1.8, speed: 1, volley: 4 }, spawn: 5 },
   { id: 'horror_hollow', name: 'The Hollow King', model: 'creature:hollow', minWave: 24, hp: 7000, tentacles: 8, regrow: 7, reach: 0.8, slam: 9, scale: 0.42, hoverAlt: 1.55, attack: { dmg: 5, period: 1.6, speed: 1.2, volley: 4 } },
-  { id: 'elder_dreamer', name: 'The Dreamer in the Dark', model: 'creature:dreamer', minWave: 20, hp: 26000, tentacles: 12, regrow: 6, reach: 1.1, slam: 14, scale: 0.75, hoverAlt: 1.95, attack: { dmg: 7, period: 1.2, speed: 1, volley: 6 }, elder: true, spawn: 8 },
+  { id: 'elder_dreamer', name: 'The Dreamer in the Dark', model: 'creature:dreamer', minWave: 20, hp: 26000, tentacles: 12, regrow: 6, reach: 1.1, slam: 14, scale: 0.5, hoverAlt: 1.95, attack: { dmg: 7, period: 1.2, speed: 1, volley: 6 }, elder: true, spawn: 8 },
 ];
 (ALIENS as AlienDef[]).push(
   ...HORRORS.map((h): AlienDef => ({
@@ -252,7 +252,7 @@ export const DIRECTIVES: readonly DirectiveDef[] = [
   { id: 'hunter_killers', name: 'HUNTER-KILLERS', text: 'Gunship packs hunt your satellites.', minWave: 12, weight: 8, gunships: 10 },
   { id: 'kamikaze', name: 'KAMIKAZE', text: 'Swarms dive straight into cities.', minWave: 10, weight: 8, kamikaze: true },
   { id: 'eclipse', name: 'ECLIPSE', text: 'All aliens phase out of targeting.', minWave: 14, weight: 7, cloakAll: true },
-  { id: 'brood_storm', name: 'BROOD STORM', text: 'Twice the swarms; they split when killed.', minWave: 11, weight: 8, fodderMul: 2, splitFodder: true },
+  { id: 'brood_storm', name: 'BROOD STORM', text: 'Half again as many swarms, and they split when killed.', minWave: 14, weight: 7, fodderMul: 1.5, splitFodder: true },
   { id: 'from_below', name: 'FROM THE DEEP', text: 'Horrors rise from between the stars.', minWave: 14, weight: 6, horrors: 2 },
   { id: 'colossi', name: 'COLOSSI', text: 'Aliens have 60% more health.', minWave: 15, weight: 7, hpMul: 1.6 },
   { id: 'scarcity', name: 'SCARCITY', text: 'Wrecks yield half the salvage.', minWave: 10, weight: 6, salvageMul: 0.5 },

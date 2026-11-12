@@ -37,6 +37,11 @@ Build scripts that produced the shipped files: `tools/build-models.mjs`, `tools/
 |---|---|---|---|
 | Share Tech Mono (UI font, npm `@fontsource/share-tech-mono`) | Carrois Apostrophe | https://fonts.google.com/specimen/Share+Tech+Mono | SIL Open Font License 1.1 |
 
+## Made in code
+
+The Outer Dark creatures (bodies and animated tentacles), alien weapon fire, wreckage, smoke, the Aegis Shell
+and the planet's scorch and fire map are generated procedurally in `src/render/` — no third-party assets.
+
 ## Libraries
 
 - three.js — MIT — https://threejs.org

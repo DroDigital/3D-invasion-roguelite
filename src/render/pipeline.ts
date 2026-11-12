@@ -1,3 +1,4 @@
+import { RIBBON_PX } from './billboards';
 import {
   Camera, HalfFloatType, LinearFilter, Mesh, NearestFilter, OrthographicCamera, PlaneGeometry, Scene,
   ShaderMaterial, Texture, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
@@ -14,7 +15,11 @@ export interface PostSettings {
   bloom: boolean;
   dither: boolean;
   crt: boolean;
+  /** High-definition path: high internal resolution, MSAA, wide bloom, filmic grade. */
+  hd: boolean;
 }
+
+const BLOOM_LEVELS = 3;
 
 /**
  * Scene -> low-res HDR target -> bloom (bright pass + 2-level separable blur)
@@ -36,7 +41,8 @@ export class Pipeline {
   private outMat: ShaderMaterial;
   width = 640;
   height = INTERNAL_HEIGHT;
-  settings: PostSettings = { bloom: true, dither: true, crt: true };
+  settings: PostSettings = { bloom: true, dither: true, crt: false, hd: true };
+  private samples = -1;
   /** Full-screen white flash amount (abilities, evolutions). */
   flash = 0;
   /** Sun screen position (uv) and visibility, for the lens flare. */
@@ -52,7 +58,7 @@ export class Pipeline {
       new WebGLRenderTarget(w, h, { type: HalfFloatType, magFilter: filter, minFilter: filter, depthBuffer: depth });
     this.sceneRT = rt(this.width, this.height, NearestFilter, true);
     this.compRT = rt(this.width, this.height, NearestFilter, false);
-    for (let k = 0; k < 2; k++) {
+    for (let k = 0; k < BLOOM_LEVELS; k++) {
       this.bloomA.push(rt(8, 8, LinearFilter, false));
       this.bloomB.push(rt(8, 8, LinearFilter, false));
     }
@@ -81,14 +87,14 @@ export class Pipeline {
     });
     this.compMat = new ShaderMaterial({
       uniforms: {
-        tScene: { value: null }, tBloom0: { value: null }, tBloom1: { value: null },
+        tScene: { value: null }, tBloom0: { value: null }, tBloom1: { value: null }, tBloom2: { value: null }, hd: { value: 1 }, time: { value: 0 },
         bloom: { value: 1 }, dither: { value: 1 }, res: { value: new Vector2() }, flash: { value: 0 },
         sun: { value: new Vector3() }, aspect: { value: 1 },
       },
       vertexShader: QUAD_VERT,
       fragmentShader: /* glsl */ `
-        uniform sampler2D tScene, tBloom0, tBloom1;
-        uniform float bloom, dither, flash, aspect;
+        uniform sampler2D tScene, tBloom0, tBloom1, tBloom2;
+        uniform float bloom, dither, flash, aspect, hd, time;
         uniform vec2 res;
         uniform vec3 sun; // uv.xy, visibility
         varying vec2 vUv;
@@ -99,7 +105,11 @@ export class Pipeline {
         }
         void main() {
           vec3 c = texture2D(tScene, vUv).rgb;
-          if (bloom > 0.5) c += texture2D(tBloom0, vUv).rgb * 0.55 + texture2D(tBloom1, vUv).rgb * 0.45;
+          if (bloom > 0.5) {
+            // Three octaves: a tight core, a soft halo and a wide atmospheric veil that ties the scene together.
+            c += texture2D(tBloom0, vUv).rgb * 0.5 + texture2D(tBloom1, vUv).rgb * 0.42;
+            if (hd > 0.5) c += texture2D(tBloom2, vUv).rgb * 0.38;
+          }
           if (sun.z > 0.0) {
             // Lens flare: veiling glare, anamorphic streak and ghosts mirrored through the centre.
             vec2 d = (vUv - sun.xy) * vec2(aspect, 1.0);
@@ -117,6 +127,22 @@ export class Pipeline {
             }
           }
           c = mix(c, vec3(1.6), flash);
+          if (hd > 0.5) {
+            // Filmic: ACES-style curve so hot cores roll off smoothly instead of clipping,
+            // then a gentle grade (cool shadows, warm highlights) and a soft vignette.
+            vec3 x = c * 0.9;
+            c = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+            float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+            c = mix(c, c * vec3(0.92, 0.98, 1.08), (1.0 - smoothstep(0.0, 0.35, l)) * 0.6);
+            c = mix(c, c * vec3(1.05, 1.0, 0.94), smoothstep(0.5, 1.0, l) * 0.5);
+            c = mix(vec3(l), c, 1.06);
+            vec2 vq = vUv - 0.5;
+            c *= 1.0 - dot(vq, vq) * 0.55;
+            // Sub-LSB noise: no banding in the deep blacks of space.
+            if (dither > 0.5) c += (fract(sin(dot(vUv * res + time * 61.0, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0;
+            gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+            return;
+          }
           // Soft-knee tone map so HDR beams and engines roll off instead of clipping hard.
           c = c / (1.0 + max(c - 1.0, 0.0) * 0.6);
           c = min(c, vec3(1.0));
@@ -174,13 +200,26 @@ export class Pipeline {
 
   resize(windowW: number, windowH: number): void {
     this.renderer.setSize(windowW, windowH, false);
-    this.height = INTERNAL_HEIGHT;
-    this.width = Math.max(320, Math.round((INTERNAL_HEIGHT * windowW) / windowH));
+    const hd = this.settings.hd;
+    const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+    this.height = hd ? Math.max(INTERNAL_HEIGHT, Math.min(1080, Math.round(windowH * dpr))) : INTERNAL_HEIGHT;
+    // Minimum ribbon width: ~2.5 px at retro resolution, ~3.5 px in HD.
+    RIBBON_PX.value = (hd ? 2.7 : 1.92) / this.height;
+    const samples = hd ? 4 : 0;
+    if (samples !== this.samples) {
+      this.samples = samples;
+      const f = hd ? LinearFilter : NearestFilter;
+      this.sceneRT.dispose();
+      this.compRT.dispose();
+      this.sceneRT = new WebGLRenderTarget(8, 8, { type: HalfFloatType, magFilter: f, minFilter: f, depthBuffer: true, samples });
+      this.compRT = new WebGLRenderTarget(8, 8, { type: HalfFloatType, magFilter: f, minFilter: f, depthBuffer: false });
+    }
+    this.width = Math.max(320, Math.round((this.height * windowW) / windowH));
     this.sceneRT.setSize(this.width, this.height);
     this.compRT.setSize(this.width, this.height);
-    for (let k = 0; k < 2; k++) {
-      const w = Math.max(8, this.width >> (k + 1));
-      const h = Math.max(8, this.height >> (k + 1));
+    for (let k = 0; k < BLOOM_LEVELS; k++) {
+      const w = Math.max(8, this.width >> (k + 1 + (hd ? 1 : 0)));
+      const h = Math.max(8, this.height >> (k + 1 + (hd ? 1 : 0)));
       this.bloomA[k].setSize(w, h);
       this.bloomB[k].setSize(w, h);
     }
@@ -200,9 +239,10 @@ export class Pipeline {
 
     if (this.settings.bloom) {
       let src: Texture = this.sceneRT.texture;
-      for (let k = 0; k < 2; k++) {
+      const levels = this.settings.hd ? BLOOM_LEVELS : 2;
+      for (let k = 0; k < levels; k++) {
         this.brightMat.uniforms.tMap.value = src;
-        this.brightMat.uniforms.threshold.value = k === 0 ? 1.1 : 0.8;
+        this.brightMat.uniforms.threshold.value = k === 0 ? 1.1 : k === 1 ? 0.8 : 0.6;
         this.pass(this.brightMat, this.bloomA[k]);
         const w = this.bloomA[k].width;
         const h = this.bloomA[k].height;
@@ -220,6 +260,9 @@ export class Pipeline {
     cu.tScene.value = this.sceneRT.texture;
     cu.tBloom0.value = this.bloomA[0].texture;
     cu.tBloom1.value = this.bloomA[1].texture;
+    cu.tBloom2.value = this.bloomA[2].texture;
+    cu.hd.value = this.settings.hd ? 1 : 0;
+    cu.time.value = (cu.time.value + 0.016) % 100;
     cu.bloom.value = this.settings.bloom ? 1 : 0;
     cu.dither.value = this.settings.dither ? 1 : 0;
     cu.flash.value = Math.min(0.7, this.flash);
