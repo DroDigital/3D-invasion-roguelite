@@ -9,6 +9,7 @@ import { partnerStrip, weaponIcon } from './icons';
 export class ShopScreen {
   readonly root = h('div');
   private cards = h('div', 'shop-cards');
+  private armory = h('div', 'armory');
   private salvage = h('span', 'shop-salvage');
   private rerollBtn: HTMLButtonElement;
   private key = '';
@@ -40,7 +41,7 @@ export class ShopScreen {
     }, 'cmd primary');
     const foot = h('div', 'lu-foot');
     foot.append(this.rerollBtn, leave);
-    this.root.append(head, this.cards, foot);
+    this.root.append(head, this.cards, this.armory, foot);
     parent.append(this.root);
     window.addEventListener('keydown', this.onKey);
   }
@@ -53,7 +54,7 @@ export class ShopScreen {
   update(): void {
     const g = this.game;
     const s = g.shop;
-    const key = s ? `${s.stock.map((x) => x.name + x.sold).join(',')}|${Math.floor(g.salvage)}|${g.wave}` : '';
+    const key = s ? `${s.stock.map((x) => x.name + x.sold).join(',')}|${s.armory.map((a) => a.def.id + a.bought).join(',')}|${g.items.map((it) => it.count).join(',')}|${Math.floor(g.salvage)}|${g.wave}` : '';
     if (key === this.key) return;
     this.key = key;
     this.root.classList.toggle('on', !!s);
@@ -64,6 +65,22 @@ export class ShopScreen {
     this.rerollBtn.disabled = g.salvage < rc;
     this.cards.textContent = '';
     s.stock.forEach((item, i) => this.cards.append(this.card(item, i)));
+    // Armory: consumables never sell out, but each copy this visit costs more.
+    this.armory.textContent = '';
+    this.armory.append(h('h3', undefined, 'ARMORY // ONE-SHOT TACTICAL ITEMS'));
+    const row = h('div', 'arow');
+    s.armory.forEach((a, i) => {
+      const held = g.items.find((it) => it.def.id === a.def.id)?.count ?? 0;
+      const full = held >= a.def.maxStack;
+      const el = h('div', `aitem${g.salvage < a.price || full ? ' poor' : ''}`);
+      el.append(h('b', undefined, `${a.def.icon}  ${a.def.name.toUpperCase()}`), h('span', 'ap', full ? `FULL (${held}/${a.def.maxStack})` : `${a.price} SALVAGE  //  HELD ${held}/${a.def.maxStack}`), h('span', 'at', a.def.text));
+      el.addEventListener('click', () => {
+        if (g.buyArmory(i)) audio.play('buy', 0.7);
+        else audio.play('ui_hover', 0.5, 0.6);
+      });
+      row.append(el);
+    });
+    this.armory.append(row);
   }
 
   private card(item: ShopStock, i: number): HTMLElement {
@@ -72,7 +89,7 @@ export class ShopScreen {
     const card = h('div', `lu-card shop-card r-${item.rarity}${item.sold ? ' sold' : ''}${!afford && !item.sold ? ' poor' : ''}`);
     const kindLabel: Record<string, string> = {
       passive: 'PASSIVE', relic: 'RELIC // RUN-ALTERING', repair: 'CITY REPAIR', repairAll: 'CITY REPAIR', slot: 'WEAPON SLOT',
-      rerolls: 'LEVEL-UP REROLLS', tierUp: 'WEAPON REFIT', ability: 'ACTIVE ABILITY // RARE',
+      rerolls: 'LEVEL-UP REROLLS', tierUp: 'WEAPON REFIT', ability: 'ACTIVE ABILITY // RARE', defenseSlot: 'DEFENSE SLOT', defenseRefit: 'DEFENSE REFIT',
     };
     card.append(h('div', 'shop-key', `[${i + 1}]`), h('div', 'lu-kind', kindLabel[item.def.kind]));
     const head = h('div', 'lu-head');

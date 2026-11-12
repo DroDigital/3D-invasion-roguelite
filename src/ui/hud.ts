@@ -3,7 +3,9 @@ import { CITIES, CITY_MAX_HEALTH, POPULATION_LOSS_THRESHOLD } from '../data/citi
 import type { Game } from '../sim/game';
 import { readyEvolutions } from '../sim/offers';
 import { tierOf } from '../sim/weapons';
-import { describeUpgrade, describeWeapon } from './describe';
+import { describeDefense, describeUpgrade, describeWeapon } from './describe';
+import { defenseIsMax } from '../sim/defense';
+import { ROLE_HORROR } from '../sim/enemies';
 import { button, Cell, fmtPop, fmtTime, h } from './dom';
 import { partnerStrip, weaponIcon } from './icons';
 
@@ -11,6 +13,8 @@ export interface HudCallbacks {
   onCity(i: number): void;
   onCityHover(i: number): void;
   onAbility(i: number): void;
+  /** Use held consumable `i` (place it if it needs a target). */
+  onItem(i: number): void;
   onSpeed(speed: number): void;
   onPause(): void;
   onSettings(): void;
@@ -20,6 +24,8 @@ export interface HudCallbacks {
 }
 
 const MAX_THREAT_ROWS = 7;
+/** Targeting ids at or above this are consumables (ITEM_BASE + index); below are abilities. */
+export const ITEM_BASE = 100;
 
 /** Command HUD: four corners plus a bottom dock, everything change-driven. */
 export class Hud {
@@ -65,6 +71,14 @@ export class Hud {
   private gameoverTitle: HTMLElement;
   private overShown = false;
   showFps = false;
+  private dirEl!: HTMLElement;
+  private dirKey = '';
+  private defTiles!: HTMLElement;
+  private defKey = '';
+  private aegisFill: HTMLElement | null = null;
+  private itemBar!: HTMLElement;
+  private itemKey = '';
+  private targetingIdx: number | null = null;
 
   constructor(parent: HTMLElement, private game: Game, seed: string, private cb: HudCallbacks) {
     // ---- top-left: wave ----
@@ -104,6 +118,8 @@ export class Hud {
     bt.append(this.bossFill, this.bossShield);
     this.bossBar.append(bn, bt);
     tc.append(this.bossBar);
+    this.dirEl = h('div', 'directives');
+    tc.append(this.dirEl);
 
     // ---- top-right: economy + controls ----
     const tr = h('div', 'hpanel');
@@ -157,13 +173,15 @@ export class Hud {
     ars.append(h('div', 'phead', 'ARSENAL'));
     this.tiles = h('div', 'tiles');
     this.systems = h('div', 'syschips');
-    ars.append(this.tiles, this.systems);
+    this.defTiles = h('div', 'tiles deftiles');
+    ars.append(this.tiles, h('div', 'phead sub', 'DEFENSE GRID'), this.defTiles, this.systems);
 
     // ---- bottom: abilities + xp ----
     const bottom = h('div');
     bottom.id = 'dock';
     this.abilityBar = h('div', 'abilities');
-    bottom.append(this.abilityBar);
+    this.itemBar = h('div', 'items');
+    bottom.append(this.abilityBar, this.itemBar);
     this.xpBar = h('div');
     this.xpBar.id = 'xpbar';
     const lv = h('span', 'lv');
@@ -260,12 +278,20 @@ export class Hud {
     this.updateThreats();
     this.updateArsenal();
     this.updateAbilities();
+    this.updateDirectives();
+    this.updateDefense();
+    this.updateItems();
 
     this.level.set(`LV ${g.level}`);
     this.xpFill.style.transform = `scaleX(${(g.xp / g.xpNeeded).toFixed(3)})`;
 
-    const b = g.bossSlot;
+    let b = g.bossSlot;
     const e = g.enemies;
+    if (b < 0 || !e.alive[b]) {
+      // No boss: track the toughest horror instead.
+      b = -1;
+      for (let i = 0; i < e.high; i++) if (e.alive[i] && e.role[i] === ROLE_HORROR && (b < 0 || e.maxHp[i] > e.maxHp[b])) b = i;
+    }
     if (b >= 0 && e.alive[b]) {
       this.bossBar.classList.add('on');
       this.bossName.set(ALIENS[e.def[b]].name.toUpperCase());
@@ -457,7 +483,78 @@ export class Hud {
   }
 
   setTargeting(i: number | null): void {
+    this.targetingIdx = i;
     this.abilityCd.forEach((v, k) => v.btn.classList.toggle('targeting', k === i));
+    this.itemBar.querySelectorAll('.item').forEach((el, k) => el.classList.toggle('targeting', i === ITEM_BASE + k));
+  }
+
+  /** This wave's directives as compact chips under the wave counter. */
+  private updateDirectives(): void {
+    const g = this.game;
+    const key = g.directives.map((d) => d.id).join(',');
+    if (key === this.dirKey) return;
+    this.dirKey = key;
+    this.dirEl.textContent = '';
+    for (const d of g.directives) {
+      const chip = h('div', 'dchip', d.name);
+      this.tip(chip, () => this.listTip('WAVE DIRECTIVE', [[d.name, d.text]]));
+      this.dirEl.append(chip);
+    }
+  }
+
+  /** Defense modules: slotted tiles with tier pips, an Aegis charge bar when installed. */
+  private updateDefense(): void {
+    const g = this.game;
+    const d = g.defense;
+    const key = `${d.slots}|${d.modules.map((m) => `${m.def.id}:${m.tier}`).join(',')}`;
+    if (key !== this.defKey) {
+      this.defKey = key;
+      this.defTiles.textContent = '';
+      this.aegisFill = null;
+      d.modules.forEach((m) => {
+        const tile = h('div', 'tile def');
+        const pips = h('div', 'pips');
+        for (let t = 0; t < 5; t++) pips.append(h('i', t <= m.tier ? 'on' : ''));
+        const meta = h('div', 'tmeta');
+        meta.append(h('div', 'tname', m.def.name.toUpperCase()), pips);
+        tile.append(h('span', 'wicon dicon', m.def.icon), meta);
+        if (m.def.id === 'aegis') {
+          const bar = h('div', 'tshare aegis');
+          this.aegisFill = h('i');
+          bar.append(this.aegisFill);
+          tile.append(bar);
+        }
+        this.tip(tile, () => {
+          const el = h('div');
+          const head = h('div', 'tt-head');
+          head.append(h('span', 'wicon dicon', m.def.icon), h('b', undefined, m.def.name.toUpperCase()), h('span', undefined, defenseIsMax(m) ? 'MAX TIER' : `TIER ${m.tier + 1}/5`));
+          el.append(head);
+          for (const l of describeDefense(m.def, m.tier, false)) el.append(h('div', 'tt-line', l));
+          if (m.kills) el.append(h('div', 'tt-line hi', `KILLS ${m.kills}`));
+          return el;
+        });
+        this.defTiles.append(tile);
+      });
+      for (let i = d.modules.length; i < d.slots; i++) this.defTiles.append(h('div', 'tile empty', '+'));
+    }
+    if (this.aegisFill) this.aegisFill.style.transform = `scaleX(${d.aegisMax > 0 ? (d.aegis / d.aegisMax).toFixed(3) : '0'})`;
+  }
+
+  /** Consumables: one button per held kind, with a stack count and number-key hotkey. */
+  private updateItems(): void {
+    const g = this.game;
+    const key = g.items.map((it) => `${it.def.id}:${it.count}`).join(',');
+    if (key === this.itemKey) return;
+    this.itemKey = key;
+    this.itemBar.textContent = '';
+    g.items.forEach((it, i) => {
+      const btn = h('div', 'item');
+      btn.append(h('span', 'key', String(i + 1)), h('span', 'ico', it.def.icon), h('span', 'cnt', `x${it.count}`), h('span', 'aname', it.def.name.toUpperCase()));
+      this.tip(btn, () => this.listTip(it.def.name.toUpperCase(), [[`${it.count} HELD // ${it.def.targeting === 'point' ? 'CLICK THE GLOBE' : it.def.targeting === 'city' ? 'CLICK A CITY' : 'INSTANT'}`, it.def.text]]));
+      btn.addEventListener('click', () => this.cb.onItem(i));
+      if (this.targetingIdx === ITEM_BASE + i) btn.classList.add('targeting');
+      this.itemBar.append(btn);
+    });
   }
 
   private showGameOver(points: number): void {

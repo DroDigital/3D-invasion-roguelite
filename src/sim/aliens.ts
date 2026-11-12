@@ -482,7 +482,7 @@ export function updateAliens(g: Game, dt: number, realDt: number): void {
 const CARRIER_BROODS = 6;
 const KAMIKAZE_DMG = 1.0;
 /** Global scale on alien shot damage. */
-const SHOT_DMG = 0.5;
+const SHOT_DMG = 0.4;
 /** Share of swarm fodder that dives into the ground instead of landing to besiege. */
 const DIVE_SHARE = 0.4;
 
@@ -553,9 +553,13 @@ function growTentacles(g: Game, i: number, dt: number): void {
   e.timer[i] += dt;
   const live = e.cargo[i];
   const need = rp.tentacles + e.phase[i] * 2;
-  // First grip comes fast; regrowth takes a while.
-  const wait = live === 0 && e.timer[i] < 2 ? 0.6 : rp.regrow / (1 + e.phase[i] * 0.5);
-  if (live >= need || e.timer[i] < wait) return;
+  // The first grip comes fast (horrors carry no modifiers, so `mods` marks it done); regrowth takes a while.
+  if (live >= need) {
+    e.mods[i] = 1;
+    return;
+  }
+  const wait = e.mods[i] === 0 ? 0.6 : rp.regrow / (1 + e.phase[i] * 0.5);
+  if (e.timer[i] < wait) return;
   e.timer[i] = 0;
   const r = g.combatRng;
   const c = g.cities;

@@ -4,6 +4,9 @@ import { spawnAlien } from './sim/aliens';
 import type { Game } from './sim/game';
 import { readyEvolutions } from './sim/offers';
 import { updateEmitters } from './sim/weapons';
+import { defenseById } from './data/defenses';
+import { consumableById } from './data/consumables';
+import { addItem } from './sim/consumables';
 
 /** Console/automation helpers, enabled with ?dev=1. Not used by normal play. */
 export function devTools(g: Game): Record<string, unknown> {
@@ -20,6 +23,14 @@ export function devTools(g: Game): Record<string, unknown> {
         const z = (d[2] / l + r.range(-j, j)) * dist;
         spawnAlien(g, alienIndex(id), tier, x, y, z, r.int(g.cities.count), r, fodder ? { hpMul: 0.5, noMods: true, fodder: true } : {});
       }
+    },
+    defense(id: string, tier = 0) {
+      const m = g.defense.get(id) ?? g.defense.add(defenseById(id));
+      if (m) m.tier = Math.min(tier, m.def.tiers.length - 1);
+      g.recompute();
+    },
+    item(id: string, n = 1) {
+      addItem(g, consumableById(id), n);
     },
     setWave(n: number) {
       g.wave = n;

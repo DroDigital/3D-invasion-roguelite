@@ -6,6 +6,17 @@ You command Earth's orbital defense. Aliens arrive in waves from every side; eve
 targets on its own. You build: pick upgrades on level-up, buy in the shop between waves, merge
 max-tier weapon pairs into evolutions, and fire one or two long-cooldown abilities at the right moment.
 
+The aliens fight back. Every species has its own weapon (acid, lasers, plasma, homing missiles, void bolts)
+aimed at your cities, gunship packs hunt your satellites, swarms dive into the ground, and every destroyed
+ship falls and burns the planet's surface. From wave 10 the Outer Dark arrives: eldritch horrors that seize
+cities with killable, regrowing tentacles, and from wave 20 a Great Old One wakes on boss waves. Late waves
+carry stacking directives (Iron Tide, Frenzy, Eclipse...), so the war changes shape rather than just growing
+health bars. Salvage gets scarcer as the war drags on.
+
+Besides weapons you slot **defense modules** (Aegis Shell, Flak Grid, Interceptor Silos, Tesla Pylons,
+Orbital Minefield and more, tiered I-V) and buy **one-shot consumables** in the shop's armory (warheads,
+sentry drops, gravity wells, decoy cities, a singularity...), which stack and are placed on the globe.
+
 ```bash
 npm install
 npm run dev      # http://localhost:5173
@@ -21,6 +32,7 @@ npm run build
 | Click a city in the list | Fly the camera to it |
 | 1–5, R | Pick a level-up card, reroll |
 | Q / E (or the on-screen buttons) | Active abilities. Point and city abilities then take a click on the globe (or a city row) |
+| 1–6 (during a wave) | Use a held consumable; most then take a click on the globe or a city |
 | Space / Tab | Pause / cycle game speed 1x-2x-3x (also the buttons top-right) |
 | F | Jump the camera to the most threatened city |
 | F3 | Toggle the FPS readout |
@@ -35,7 +47,7 @@ npm run build
 | `?gallery=0..3` | Every weapon's five tier models side by side (pages 0–2), evolved weapons (page 3) |
 | `?auto=1` | The bot plays (used for automated checks) |
 | `?speed=N` | Run N simulation steps per frame |
-| `?dev=1` | Exposes `window.__ow.dev` helpers (spawn aliens, give weapons, offer evolutions) |
+| `?dev=1` | Exposes `window.__ow.dev` helpers (spawn aliens, give weapons and defenses, add consumables, offer evolutions) |
 
 ## Layout
 

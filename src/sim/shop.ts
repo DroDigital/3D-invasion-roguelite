@@ -123,7 +123,7 @@ function resolve(g: Game, def: ShopItemDef, taken: Set<string>): ShopStock | nul
 
 function rollStock(g: Game): ShopStock[] {
   const r = g.shopRng;
-  const pool = SHOP_ITEMS.filter((d) => (d.minWave ?? 1) <= g.wave);
+  const pool = SHOP_ITEMS.filter((d) => (d.minWave ?? 1) <= Math.max(1, g.wave));
   const taken = new Set<string>();
   const out: ShopStock[] = [];
   let guard = 0;

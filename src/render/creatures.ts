@@ -7,14 +7,16 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
  * Vertex colours: grey flesh (the species palette maps it), > 1.5 marks self-lit eyes and maws.
  */
 
-const FLESH = 0.55;
-const DARK = 0.3;
-const BONE = 0.85;
-const GLOW = 2.4;
+type RGB = [number, number, number];
+/** Baked colours (creatures skip the species palette): bruised violet flesh, bone, sickly glow. */
+const FLESH: RGB = [0.3, 0.13, 0.33];
+const DARK: RGB = [0.13, 0.05, 0.16];
+const BONE: RGB = [0.62, 0.56, 0.46];
+const GLOW: RGB = [1.6, 2.7, 1.2];
 
 type Part = BufferGeometry;
 
-function tint(g: BufferGeometry, c: number | ((p: Vector3, n: Vector3) => number)): BufferGeometry {
+function tint(g: BufferGeometry, c: RGB | ((p: Vector3, n: Vector3) => RGB)): BufferGeometry {
   const pos = g.getAttribute('position');
   const nor = g.getAttribute('normal');
   const col = new Float32Array(pos.count * 3);
@@ -23,10 +25,10 @@ function tint(g: BufferGeometry, c: number | ((p: Vector3, n: Vector3) => number
   for (let i = 0; i < pos.count; i++) {
     p.fromBufferAttribute(pos, i);
     n.fromBufferAttribute(nor, i);
-    const v = typeof c === 'number' ? c : c(p, n);
-    col[i * 3] = v;
-    col[i * 3 + 1] = v;
-    col[i * 3 + 2] = v;
+    const v = typeof c === 'function' ? c(p, n) : c;
+    col[i * 3] = v[0];
+    col[i * 3 + 1] = v[1];
+    col[i * 3 + 2] = v[2];
   }
   g.setAttribute('color', new BufferAttribute(col, 3));
   return g;
@@ -48,7 +50,12 @@ function blob(rx: number, ry: number, rz: number, at: [number, number, number], 
   }
   g.computeVertexNormals();
   // Darker underside and creases, paler ridges.
-  return tint(g, (p) => FLESH + 0.25 * Math.max(-0.4, Math.min(0.4, (p.y - at[1]) / Math.max(0.01, ry))) + 0.08 * lump(p, seed + 3));
+  return tint(g, (p): RGB => {
+    const k = 1 + 0.7 * Math.max(-0.5, Math.min(0.5, (p.y - at[1]) / Math.max(0.01, ry))) + 0.25 * lump(p, seed + 3);
+    // Pale, veined ridges on the bulges; near-black in the folds.
+    const vein = Math.max(0, lump(p, seed + 7)) * 0.25;
+    return [FLESH[0] * k + vein * 0.3, FLESH[1] * k + vein * 0.6, FLESH[2] * k + vein * 0.4];
+  });
 }
 
 function eye(r: number, at: [number, number, number]): Part {
@@ -61,7 +68,7 @@ const q = new Quaternion();
 const m = new Matrix4();
 
 /** A cone from `base` pointing along `dir` (spines, teeth, tendril stubs). */
-function spike(r: number, len: number, base: [number, number, number], dir: [number, number, number], c = BONE, seg = 5): Part {
+function spike(r: number, len: number, base: [number, number, number], dir: [number, number, number], c: RGB = BONE, seg = 5): Part {
   const g = new ConeGeometry(r, len, seg).translate(0, len / 2, 0);
   const d = new Vector3(...dir).normalize();
   q.setFromUnitVectors(up, d);
@@ -80,7 +87,7 @@ function limb(base: [number, number, number], dir: [number, number, number], len
   const step = len / segs;
   for (let k = 0; k < segs; k++) {
     const rr = r * (1 - k / segs) + 0.004;
-    out.push(spike(rr, step * 1.15, [p.x, p.y, p.z], [d.x, d.y, d.z], k === segs - 1 ? FLESH : DARK + 0.1, 6));
+    out.push(spike(rr, step * 1.15, [p.x, p.y, p.z], [d.x, d.y, d.z], k === segs - 1 ? FLESH : DARK, 6));
     p.addScaledVector(d, step);
     d.applyAxisAngle(axis, curl).normalize();
   }

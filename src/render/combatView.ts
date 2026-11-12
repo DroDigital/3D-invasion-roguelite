@@ -9,7 +9,7 @@ import { ALLIES } from '../data/allies';
 import { MAX_ALLIES } from '../sim/allies';
 import { ALIENS, ALIEN_TIERS, SPECIES } from '../data/aliens';
 import {
-  MAX_ENEMIES, ROLE_ABDUCTOR, ROLE_INVADER, ROLE_SABOTEUR, ST_ATTACHED, ST_FLEE, ST_HOVER, ST_SIEGE,
+  MAX_ENEMIES, ROLE_ABDUCTOR, ROLE_INVADER, ROLE_SABOTEUR, ROLE_TENTACLE, ST_ATTACHED, ST_FLEE, ST_HOVER, ST_SIEGE,
 } from '../sim/enemies';
 import type { Game } from '../sim/game';
 import {
@@ -22,6 +22,8 @@ import { RibbonLayer, SP_EMBER, SP_FLASH, SP_PORTAL, SP_RING, SP_STAR, SpriteFx,
 import { buildTierModel, tierScale } from './kit';
 import { PS2 } from './ps2Material';
 import { additive, fresnel, psInstanced } from './instanced';
+import { creatureGeometry, isCreature } from './creatures';
+import { HostileView } from './hostileView';
 
 const FWD = new Vector3(0, 0, 1);
 const UP = new Vector3(0, 1, 0);
@@ -36,13 +38,14 @@ const col = new Color();
 const HULLS = [...new Set(ALIENS.map((a) => a.model))];
 const HULL_INDEX = new Map(HULLS.map((h, i) => [h, i]));
 const DEF_HULL = ALIENS.map((a) => HULL_INDEX.get(a.model)!);
+const CREATURE = ALIENS.map((a) => isCreature(a.model));
 const MAX_MOTES = 1500;
 const SPECIES_GLOW = SPECIES.map((sp) => sp.palette[1].map((v) => v * 2.2) as [number, number, number]);
 const ALIEN_RENDER_SCALE = 1.6;
 const MAX_WAVES = 24;
 
 /** Palette slot for Earth's allied fighters (species use 0-3). */
-const PAL_ALLY = 4;
+const PAL_ALLY = 5;
 
 /** Swarm fodder hull: a tiny faceted dart. At a few pixels on screen it reads as well as a full hull. */
 function dartGeometry(): BufferGeometry {
@@ -108,6 +111,8 @@ export class CombatView {
   /** Camera shake requests, read by main.ts. */
   shake = 0;
   flash = 0;
+  /** Alien fire, tentacles, wrecks, smoke and Earth's defenses. */
+  readonly hostile: HostileView;
 
   constructor(private game: Game, private parent: Object3D) {
     const droneGeo = new ConeGeometry(0.4, 1.2, 4).rotateX(Math.PI / 2).toNonIndexed();
@@ -133,11 +138,13 @@ export class CombatView {
     this.ribbons = new RibbonLayer(parent, 4000, false);
     this.tracers = new RibbonLayer(parent, MAX_PROJECTILES, true);
     this.glows = new SpriteLayer(parent, MAX_ENEMIES + MAX_MOTES + 64);
+    this.hostile = new HostileView(game, parent, this);
 
     for (const o of [this.shields, this.halos, this.beams, this.drones.mesh, this.fields, this.waves, this.domes, this.trails, this.fodderView.mesh]) parent.add(o);
   }
 
   dispose(): void {
+    this.hostile.dispose();
     this.sprites.dispose();
     this.ribbons.dispose();
     this.tracers.dispose();
@@ -155,7 +162,8 @@ export class CombatView {
   private hull(h: number): { mesh: InstancedMesh; data: InstancedBufferAttribute } | null {
     let v = this.hulls[h];
     if (v) return v;
-    const geo = modelNow(`hull:${HULLS[h]}`);
+    const name = HULLS[h];
+    const geo = isCreature(name) ? creatureGeometry(name) : modelNow(`hull:${name}`);
     if (!geo) return null;
     v = psInstanced(geo, MAX_ENEMIES);
     this.parent.add(v.mesh);
@@ -378,6 +386,7 @@ export class CombatView {
     PS2.time.value += dt;
     this.updateWeapons();
     this.consumeFx();
+    this.hostile.consumeFx();
     this.updateAliens();
     this.updateAllies();
     this.updateProjectiles();
@@ -390,6 +399,7 @@ export class CombatView {
     this.updateMotes(dt);
     this.updateWaves(dt);
     this.updateDomes();
+    this.hostile.update(dt);
     this.shake = Math.max(0, this.shake - dt * 2.5);
     this.flash = Math.max(0, this.flash - dt * 2);
     void g;
@@ -428,8 +438,15 @@ export class CombatView {
         s.setScalar(size);
         m.compose(p, q, s);
         v.mesh.setMatrixAt(k, m);
-        v.mesh.setColorAt(k, jam ? col.setRGB(1.6, 0.5, 0.4) : col.setRGB(1, 1, 1));
-        v.data.setXYZW(k, -1, 0, 0, jam ? 0.3 * (Math.sin(PS2.time.value * 12) + 1) : 0);
+        const down = w.emDown[k] > 0;
+        if (down) {
+          // Wrecked: shrunk, charred, rebuilding.
+          s.setScalar(size * 0.55);
+          m.compose(p, q, s);
+          v.mesh.setMatrixAt(k, m);
+        }
+        v.mesh.setColorAt(k, down ? col.setRGB(0.3, 0.16, 0.12) : jam ? col.setRGB(1.6, 0.5, 0.4) : col.setRGB(1, 1, 1));
+        v.data.setXYZW(k, -1, 0, 0, !down && jam ? 0.3 * (Math.sin(PS2.time.value * 12) + 1) : 0);
       }
       v.mesh.count = n;
       v.mesh.instanceMatrix.needsUpdate = true;
@@ -456,7 +473,8 @@ export class CombatView {
       p.set(e.x[i], e.y[i], e.z[i]);
       // Small ships render larger than their hit radius so silhouettes read at orbit distance;
       // big hulls are already readable and stay close to true size.
-      const sc = e.scale[i] * (1 + (ALIEN_RENDER_SCALE - 1) * Math.min(1, Math.max(0, (0.14 - e.scale[i]) / 0.08)));
+      let sc = e.scale[i] * (1 + (ALIEN_RENDER_SCALE - 1) * Math.min(1, Math.max(0, (0.14 - e.scale[i]) / 0.08)));
+      if (CREATURE[e.def[i]]) sc *= 1 + 0.045 * Math.sin(PS2.time.value * 2.6 + e.seed[i]);
       if (e.state[i] === ST_SIEGE) d.copy(p).normalize().negate();
       else d.set(e.dx[i], e.dy[i], e.dz[i]);
       q.setFromUnitVectors(FWD, d);
@@ -474,7 +492,7 @@ export class CombatView {
         // Rarity shows as a light tint plus the halo ring; the species palette stays readable.
         const tk = e.tier[i] === 0 ? 0 : 0.3;
         view.mesh.setColorAt(n, col.setRGB(1 + (Math.min(1.4, tier.color[0]) - 1) * tk, 1 + (Math.min(1.4, tier.color[1]) - 1) * tk, 1 + (Math.min(1.4, tier.color[2]) - 1) * tk));
-        view.data.setXYZW(n, e.species[i], e.flash[i] > 0 ? 0.8 : 0, e.cloaked[i] ? 0.8 : 0, e.tier[i] >= 2 ? 0.08 : 0);
+        view.data.setXYZW(n, CREATURE[e.def[i]] ? -1 : e.species[i], e.flash[i] > 0 ? 0.8 : 0, e.cloaked[i] ? 0.8 : 0, e.tier[i] >= 2 ? 0.08 : 0);
       }
       if (e.shield[i] > 0 && !e.cloaked[i] && !e.fodder[i]) {
         s.setScalar(sc * 0.75);
@@ -502,7 +520,12 @@ export class CombatView {
         const pulse = 0.7 + 0.3 * Math.sin(PS2.time.value * 9 + i);
         this.beams.setColorAt(bm++, col.setRGB(0.6 * pulse, 1.6 * pulse, 1.2 * pulse));
       }
-      if (!e.cloaked[i] && e.state[i] !== ST_SIEGE) {
+      if (e.role[i] === ROLE_TENTACLE) {
+        // Tentacle tips: a faint sickly glow; the limb itself is drawn by the hostile view.
+        this.glows.push(e.x[i], e.y[i], e.z[i], 0.02, 0.5, 1.4, 0.9, SP_FLASH);
+        continue;
+      }
+      if (!e.cloaked[i] && e.state[i] !== ST_SIEGE && !CREATURE[e.def[i]]) {
         // Engine glow behind the hull, in the species colour, flickering.
         const gc = SPECIES_GLOW[e.species[i]];
         const fl = 0.75 + 0.25 * Math.sin(PS2.time.value * 31 + i * 1.7);

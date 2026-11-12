@@ -21,7 +21,7 @@ import { devTools } from './dev';
 import { Game, STEP } from './sim/game';
 import { h } from './ui/dom';
 import { Floaters } from './ui/floaters';
-import { Hud } from './ui/hud';
+import { Hud, ITEM_BASE } from './ui/hud';
 import { LevelUpScreen } from './ui/levelup';
 import { Menu, openPause } from './ui/menu';
 import { openSettings } from './ui/settings';
@@ -71,6 +71,10 @@ async function boot(): Promise<void> {
     pipeline.settings.bloom = s.bloom;
     pipeline.settings.dither = s.dither;
     pipeline.settings.crt = s.crt;
+    if (pipeline.settings.hd !== s.hd) {
+      pipeline.settings.hd = s.hd;
+      pipeline.resize(window.innerWidth, window.innerHeight);
+    }
     PS2.affine.value = s.affine ? 1 : 0;
     audio.volumes = { master: s.master, sfx: s.sfx, music: s.music };
     audio.applyVolumes();
@@ -147,10 +151,11 @@ async function boot(): Promise<void> {
       markers,
       hud: new Hud(uiRoot, game, seed, {
         onCity: (i) => {
-          if (targeting !== null && run?.game.abilities[targeting]?.def.targeting === 'city') fireAbility(targeting, { city: i });
+          if (targeting !== null && targetKind(targeting) === 'city') fireTarget(targeting, { city: i });
           else orbit.focusOn(markers.worldDir(i, tmp));
         },
         onAbility: (i) => tryAbility(i),
+        onItem: (i) => tryItem(i),
         onCityHover: (i) => {
           markers.hover = i;
         },
@@ -179,6 +184,8 @@ async function boot(): Promise<void> {
       evolutions: 0,
     };
     run = r;
+    r.combat.hostile.scorch = earth.scorch;
+    earth.scorch.reset();
     paused = false;
     r.hud.setSpeed(gameSpeed, false);
     r.hud.showFps = profile.settings.showFps;
@@ -223,6 +230,35 @@ async function boot(): Promise<void> {
     canvas.classList.remove('targeting');
     run.hud.setTargeting(null);
   };
+  /** What the pending target pick is for: an ability (index) or a consumable (ITEM_BASE + index). */
+  const targetKind = (t: number): 'none' | 'point' | 'city' => {
+    const g = run?.game;
+    if (!g) return 'none';
+    return t >= ITEM_BASE ? g.items[t - ITEM_BASE]?.def.targeting ?? 'none' : g.abilities[t]?.def.targeting ?? 'none';
+  };
+  const fireTarget = (t: number, target?: { point?: [number, number, number]; city?: number }): void => {
+    if (t < ITEM_BASE) {
+      fireAbility(t, target);
+      return;
+    }
+    if (!run) return;
+    const it = run.game.items[t - ITEM_BASE];
+    if (it && run.game.useItem(t - ITEM_BASE, target)) audio.play(it.def.sfx, 0.9);
+    targeting = null;
+    canvas.classList.remove('targeting');
+    run.hud.setTargeting(null);
+  };
+  const tryItem = (i: number): void => {
+    if (!run || run.game.paused) return;
+    const it = run.game.items[i];
+    if (!it) return;
+    if (it.def.targeting === 'none') fireTarget(ITEM_BASE + i);
+    else {
+      targeting = targeting === ITEM_BASE + i ? null : ITEM_BASE + i;
+      canvas.classList.toggle('targeting', targeting !== null);
+      run.hud.setTargeting(targeting);
+    }
+  };
   const tryAbility = (i: number): void => {
     if (!run || run.game.paused) return;
     const a = run.game.abilities[i];
@@ -255,8 +291,7 @@ async function boot(): Promise<void> {
     if (disc < 0) return;
     const hit = tmp.copy(d).multiplyScalar(-b - Math.sqrt(disc)).add(o);
     const local = earth.surface.worldToLocal(hit).normalize();
-    const a = run.game.abilities[targeting];
-    if (a.def.targeting === 'point') fireAbility(targeting, { point: [local.x, local.y, local.z] });
+    if (targetKind(targeting) === 'point') fireTarget(targeting, { point: [local.x, local.y, local.z] });
     else {
       const cs = run.game.cities;
       let best = -1;
@@ -268,7 +303,7 @@ async function boot(): Promise<void> {
           best = k;
         }
       }
-      if (best >= 0) fireAbility(targeting, { city: best });
+      if (best >= 0) fireTarget(targeting, { city: best });
     }
   });
 
@@ -291,7 +326,8 @@ async function boot(): Promise<void> {
       let best = -1;
       for (let k = 0; k < g.cities.count; k++) if (g.threat[k] > 0 && (best < 0 || g.threat[k] > g.threat[best])) best = k;
       if (best >= 0) orbit.focusOn(run.markers.worldDir(best, tmp));
-    } else if (e.key === 'q' || e.key === 'Q') tryAbility(0);
+    } else if (e.key >= '1' && e.key <= '6' && !run.game.offer && run.game.phase !== 'shop') tryItem(Number(e.key) - 1);
+    else if (e.key === 'q' || e.key === 'Q') tryAbility(0);
     else if (e.key === 'e' || e.key === 'E') tryAbility(1);
     else if (e.key === 'Escape') {
       if (targeting !== null) {

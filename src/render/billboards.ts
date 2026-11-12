@@ -17,10 +17,9 @@ export const SP_SPARK = 6; // stretched hot streak
 export const RIBBON_PX = { value: 0.004 };
 
 const SHAPES = /* glsl */ `
-float shape(float kind, vec2 uv, float t) {
-  float r = length(uv);
+float shapeRaw(float kind, vec2 uv, float t, float r) {
   if (kind < 0.5) {
-    return exp(-r * r * 9.0) * 0.9 + exp(-r * r * 60.0) * 1.6;
+    return exp(-r * r * 12.0) * 0.9 + exp(-r * r * 60.0) * 1.6;
   } else if (kind < 1.5) {
     float w = mix(0.07, 0.015, t);
     return smoothstep(w, 0.0, abs(r - 0.42)) * 1.3 + exp(-r * r * 12.0) * 0.25 * (1.0 - t);
@@ -40,6 +39,12 @@ float shape(float kind, vec2 uv, float t) {
     float disc = smoothstep(0.5, 0.2, r);
     return disc * (0.35 + swirl * 0.9) * smoothstep(0.0, 0.12, r) + smoothstep(0.06, 0.0, abs(r - 0.42)) * 1.2;
   }
+}
+float shape(float kind, vec2 uv, float t) {
+  float r = length(uv);
+  // Every shape fades to nothing before the quad edge, so no sprite ever shows a hard border.
+  float edge = (kind > 0.5 && kind < 1.5) || (kind > 3.5 && kind < 4.5) ? smoothstep(0.5, 0.47, r) : smoothstep(0.5, 0.36, kind > 1.5 && kind < 2.5 ? max(abs(uv.x), abs(uv.y)) : r);
+  return shapeRaw(kind, uv, t, r) * edge;
 }`;
 
 /** Unit quad (-0.5..0.5) shared by every billboard/ribbon geometry. */

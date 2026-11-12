@@ -9,6 +9,10 @@ export interface Settings {
   /** Affine (non-perspective) texture warp on ship detail textures. */
   affine: boolean;
   bloom: boolean;
+  /** High-definition rendering (high internal resolution, MSAA, filmic grade); off = 480-line retro. */
+  hd: boolean;
+  /** Graphics defaults revision, for one-time migrations. */
+  gfx: number;
   shake: boolean;
   damageNumbers: boolean;
   showFps: boolean;
@@ -39,7 +43,7 @@ export function defaultProfile(): Profile {
     unlocks: [],
     commander: 'vance',
     loadout: [],
-    settings: { dither: true, crt: true, vertexSnap: true, affine: true, bloom: true, shake: true, damageNumbers: true, showFps: false, seenHint: false, master: 0.8, sfx: 0.8, music: 0.5 },
+    settings: { dither: true, crt: false, vertexSnap: false, affine: false, bloom: true, hd: true, gfx: 2, shake: true, damageNumbers: true, showFps: false, seenHint: false, master: 0.8, sfx: 0.8, music: 0.5 },
     stats: { runs: 0, bestWave: 0, kills: 0, evolutions: 0 },
   };
 }
@@ -50,7 +54,12 @@ export function loadProfile(): Profile {
     if (!raw) return defaultProfile();
     const p = JSON.parse(raw) as Partial<Profile>;
     const d = defaultProfile();
-    return { ...d, ...p, settings: { ...d.settings, ...p.settings }, stats: { ...d.stats, ...p.stats }, version: 1 };
+    const settings = { ...d.settings, ...p.settings };
+    if ((p.settings?.gfx ?? 1) < 2) {
+      // Visual overhaul: move existing players onto the new HD defaults once; Retro stays one toggle away.
+      Object.assign(settings, { hd: true, crt: false, vertexSnap: false, affine: false, gfx: 2 });
+    }
+    return { ...d, ...p, settings, stats: { ...d.stats, ...p.stats }, version: 1 };
   } catch {
     return defaultProfile();
   }
