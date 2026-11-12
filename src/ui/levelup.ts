@@ -1,7 +1,7 @@
 import type { Game } from '../sim/game';
 import type { Offer } from '../sim/offers';
 import { audio } from '../audio/audio';
-import { describeTierUp, describeUpgrade, describeWeapon } from './describe';
+import { describeDefense, describeTierUp, describeUpgrade, describeWeapon } from './describe';
 import { h } from './dom';
 import { partnerStrip, weaponIcon } from './icons';
 
@@ -63,10 +63,23 @@ export class LevelUpScreen {
 
     this.cards.textContent = '';
     g.offer.forEach((o, i) => {
-      const rarity = o.kind === 'passive' ? o.upgrade.rarity : o.kind === 'weapon' ? o.weapon.rarity : o.kind === 'evolve' ? 'legendary' : 'common';
+      const rarity = o.kind === 'passive' ? o.upgrade.rarity : o.kind === 'weapon' ? o.weapon.rarity : o.kind === 'evolve' ? 'legendary' : o.kind === 'defense' ? o.defense.rarity : o.kind === 'overdrive' ? 'epic' : 'common';
       const card = h('div', `lu-card r-${rarity}${o.kind === 'evolve' ? ' evolve' : ''}`);
       card.append(h('div', 'lu-key', `[${i + 1}]`));
-      if (o.kind === 'evolve') {
+      if (o.kind === 'defense' || o.kind === 'defenseTier' || o.kind === 'overdrive') {
+        const def = o.kind === 'overdrive' ? null : o.defense;
+        card.classList.add(o.kind === 'overdrive' ? 'overdrive' : 'defense');
+        card.append(h('div', 'lu-kind', o.kind === 'defense' ? 'NEW DEFENSE MODULE' : o.kind === 'defenseTier' ? `DEFENSE TIER ${o.toTier} > ${o.toTier + 1}` : `OVERDRIVE ${o.level}`));
+        const head = h('div', 'lu-head');
+        if (def) head.append(h('span', 'wicon dicon', def.icon));
+        else head.append(weaponIcon((o as { weapon: import('../data/types').WeaponDef }).weapon, 'lit'));
+        head.append(h('div', 'lu-name', (def ? def.name : (o as { weapon: { name: string } }).weapon.name).toUpperCase()));
+        card.append(head, h('div', 'lu-rarity', def ? (o.kind === 'defense' ? def.rarity.toUpperCase() + ' // DEFENSE' : 'DEFENSE UPGRADE') : 'MAX TIER // ENDLESS'));
+        const body = h('div', 'lu-body');
+        const lines = o.kind === 'overdrive' ? [`+12% damage and +4% fire rate for this weapon.`, `Stacks without limit, each a little weaker.`] : describeDefense(def!, o.kind === 'defenseTier' ? o.toTier : 0, o.kind === 'defenseTier');
+        for (const l of lines) body.append(h('div', undefined, l));
+        card.append(body);
+      } else if (o.kind === 'evolve') {
         const a = g.arsenal.weapons[o.a].def;
         const b = g.arsenal.weapons[o.b].def;
         card.append(h('div', 'lu-kind', 'EVOLUTION'));
@@ -95,7 +108,7 @@ export class LevelUpScreen {
       }
       card.addEventListener('click', () => this.pick(i));
       card.addEventListener('mouseenter', () => audio.play('ui_hover', 0.3));
-      if (!start && o.kind !== 'tier' && o.kind !== 'evolve') {
+      if (!start && (o.kind === 'weapon' || o.kind === 'passive' || o.kind === 'defense')) {
         const ban = h('button', 'cmd lu-ban', 'BANISH');
         ban.disabled = g.banishes <= 0;
         ban.addEventListener('click', (ev) => {

@@ -60,9 +60,9 @@ export function updateAllies(g: Game, dt: number): void {
   const a = g.allies;
   const e = g.enemies;
   const fighting = g.phase === 'spawning' || g.phase === 'clearing';
-  if (fighting && a.count < alliesWanted(g.wave)) {
+  if (fighting && a.count < Math.min(MAX_ALLIES, alliesWanted(g.wave) + g.bonusAllies)) {
     a.launchAcc += dt * ALLIES.launchRate;
-    while (a.launchAcc >= 1 && a.count < alliesWanted(g.wave)) {
+    while (a.launchAcc >= 1 && a.count < Math.min(MAX_ALLIES, alliesWanted(g.wave) + g.bonusAllies)) {
       a.launchAcc -= 1;
       launch(g, a);
     }

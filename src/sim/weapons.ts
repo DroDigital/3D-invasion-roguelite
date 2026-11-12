@@ -1,6 +1,8 @@
 import type { WeaponDef, WeaponTier } from '../data/types';
 
 export const MAX_EMITTERS = 32;
+/** Keep in sync with EMITTER_HP in sim/defense.ts. */
+const EMITTER_HP_BASE = 14;
 export const SAT_RING_RADIUS = 1.45;
 export const PLATFORM_RADIUS = 1.85;
 export const GROUND_RADIUS = 1.012;
@@ -64,6 +66,11 @@ export interface OwnedWeapon {
   tilt: number;
   /** Emitter positions in the Earth-fixed frame, xyz interleaved. */
   emitters: Float32Array;
+  /** Emitter armour, and seconds until a destroyed emitter is rebuilt (0 = online). */
+  emHp: Float32Array;
+  emDown: Float32Array;
+  /** Overdrive stacks bought after max tier. */
+  overdrive: number;
 }
 
 export function tierOf(w: OwnedWeapon): WeaponTier {
@@ -76,7 +83,7 @@ export function isMaxTier(w: OwnedWeapon): boolean {
 
 export class Arsenal {
   readonly weapons: OwnedWeapon[] = [];
-  slots = 8;
+  slots = 6;
   /** Deployment counter for ring angles; per arsenal so runs stay deterministic. */
   private deploySerial = 0;
 
@@ -103,6 +110,9 @@ export class Arsenal {
       phase: (n * 2.39996) % (Math.PI * 2),
       tilt: 0.35 + ((n * 0.61803) % 1) * 2.4,
       emitters: new Float32Array(MAX_EMITTERS * 3),
+      emHp: new Float32Array(MAX_EMITTERS).fill(EMITTER_HP_BASE),
+      emDown: new Float32Array(MAX_EMITTERS),
+      overdrive: 0,
     };
     this.weapons.push(w);
     updateEmitters(w, 0);
@@ -112,7 +122,7 @@ export class Arsenal {
   /** Replace one weapon in place (evolution), keeping its slot index. */
   replace(index: number, def: WeaponDef): OwnedWeapon {
     const old = this.weapons[index];
-    const w: OwnedWeapon = { ...old, def, tier: 0, stats: emptyStats(), cooldown: 0.5, volleys: 0, jam: 0, emitters: new Float32Array(MAX_EMITTERS * 3) };
+    const w: OwnedWeapon = { ...old, def, tier: 0, stats: emptyStats(), cooldown: 0.5, volleys: 0, jam: 0, emitters: new Float32Array(MAX_EMITTERS * 3), emHp: new Float32Array(MAX_EMITTERS).fill(EMITTER_HP_BASE), emDown: new Float32Array(MAX_EMITTERS), overdrive: 0 };
     this.weapons[index] = w;
     updateEmitters(w, 0);
     return w;
@@ -179,6 +189,7 @@ export function nearestEmitter(w: OwnedWeapon, x: number, y: number, z: number):
   let best = 0;
   let bd = Infinity;
   for (let k = 0; k < n; k++) {
+    if (w.emDown[k] > 0) continue;
     const dx = w.emitters[k * 3] - x;
     const dy = w.emitters[k * 3 + 1] - y;
     const dz = w.emitters[k * 3 + 2] - z;

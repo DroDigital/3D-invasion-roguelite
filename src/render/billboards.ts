@@ -1,4 +1,5 @@
 import {
+  NormalBlending,
   AdditiveBlending, BufferGeometry, DynamicDrawUsage, Float32BufferAttribute, InstancedBufferAttribute,
   InstancedBufferGeometry, Mesh, Object3D, ShaderMaterial,
 } from 'three';
@@ -9,6 +10,11 @@ export const SP_RING = 1; // expanding shockwave annulus
 export const SP_STAR = 2; // four-point lens star
 export const SP_EMBER = 3; // small soft dot
 export const SP_PORTAL = 4; // swirling warp portal
+export const SP_SMOKE = 5; // soft billowing smoke (smoke layers only)
+export const SP_SPARK = 6; // stretched hot streak
+
+/** Minimum ribbon width per unit of depth: about 2.5 internal pixels at the current resolution. */
+export const RIBBON_PX = { value: 0.004 };
 
 const SHAPES = /* glsl */ `
 float shape(float kind, vec2 uv, float t) {
@@ -23,6 +29,11 @@ float shape(float kind, vec2 uv, float t) {
     return s * 1.4 + exp(-r * r * 30.0) * 1.5;
   } else if (kind < 3.5) {
     return exp(-r * r * 22.0) * 1.4;
+  } else if (kind > 5.5) {
+    return exp(-uv.y * uv.y * 220.0) * exp(-uv.x * uv.x * 5.0) * 1.6;
+  } else if (kind > 4.5) {
+    float n = sin(uv.x * 9.0 + t * 3.0) * sin(uv.y * 8.0 - t * 2.0) * 0.18 + sin((uv.x + uv.y) * 17.0) * 0.08;
+    return smoothstep(0.5, 0.05, r + n * 0.6);
   } else {
     float a = atan(uv.y, uv.x);
     float swirl = 0.5 + 0.5 * sin(a * 5.0 + r * 18.0 - t * 20.0);
@@ -53,7 +64,7 @@ export class SpriteFx {
   readonly mesh: Mesh;
   now = 0;
 
-  constructor(parent: Object3D, cap = 6000) {
+  constructor(parent: Object3D, cap = 6000, smoke = false) {
     this.cap = cap;
     const g = new InstancedBufferGeometry();
     fillQuad(g);
@@ -70,7 +81,7 @@ export class SpriteFx {
       vertexShader: /* glsl */ `
         attribute vec3 center; attribute vec4 pcolor; attribute vec4 anim;
         uniform float now;
-        varying vec2 vUv; varying vec3 vColor; varying float vKind; varying float vT;
+        varying vec2 vUv; varying vec3 vColor; varying float vKind; varying float vT; varying float vFade;
         void main() {
           float t = (now - anim.z) / anim.w;
           if (t < 0.0 || t > 1.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
@@ -82,20 +93,30 @@ export class SpriteFx {
           vUv = position.xy;
           vKind = pcolor.w;
           vT = t;
-          float fade = pcolor.w > 0.5 && pcolor.w < 1.5 ? 1.0 - t : (1.0 - t) * (1.0 - t);
-          vColor = pcolor.rgb * fade;
+          float fade = pcolor.w > 0.5 && pcolor.w < 1.5 ? 1.0 - t : pcolor.w > 4.5 && pcolor.w < 5.5 ? (1.0 - t) * smoothstep(0.0, 0.12, t) : (1.0 - t) * (1.0 - t);
+          vColor = pcolor.rgb * (SMOKE ? 1.0 : fade);
+          vFade = fade;
+          // Smoke puffs turn slowly; everything else stays upright.
+          if (SMOKE) {
+            float a = anim.z * 7.0 + t * 0.6;
+            vUv = mat2(cos(a), -sin(a), sin(a), cos(a)) * position.xy;
+          }
         }`,
       fragmentShader: /* glsl */ `
-        varying vec2 vUv; varying vec3 vColor; varying float vKind; varying float vT;
+        varying vec2 vUv; varying vec3 vColor; varying float vKind; varying float vT; varying float vFade;
         ${SHAPES}
-        void main() { gl_FragColor = vec4(vColor * shape(vKind, vUv, vT), 1.0); }`,
-      blending: AdditiveBlending,
+        void main() {
+          float s = shape(vKind, vUv, vT);
+          gl_FragColor = SMOKE ? vec4(vColor, s * vFade * 0.75) : vec4(vColor * s, 1.0);
+        }`,
+      defines: { SMOKE: smoke ? 'true' : 'false' },
+      blending: smoke ? NormalBlending : AdditiveBlending,
       transparent: true,
       depthWrite: false,
     });
     this.mesh = new Mesh(g, this.mat);
     this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 10;
+    this.mesh.renderOrder = smoke ? 8 : 10;
     parent.add(this.mesh);
   }
 
@@ -202,7 +223,7 @@ export class SpriteLayer {
 
 const RIBBON_VERT = /* glsl */ `
 attribute vec3 pa; attribute vec3 pb; attribute vec4 rcolor; attribute vec4 ranim; // width, birth, life, jitter
-uniform float now; uniform float persistent;
+uniform float now; uniform float persistent; uniform float pxScale;
 varying vec2 vUv; varying vec3 vColor;
 void main() {
   float t = persistent > 0.5 ? 0.0 : (now - ranim.y) / ranim.z;
@@ -214,7 +235,7 @@ void main() {
   vec3 side = normalize(cross(d, normalize(a.xyz + b.xyz)));
   vec4 p = mix(a, b, position.x + 0.5);
   // Never thinner than ~2.5 internal pixels, whatever the zoom (1 px ~ 0.0016 * depth at 480 lines).
-  float w = max(ranim.x, -p.z * 0.004) * (persistent > 0.5 ? 1.0 : (1.0 - t * 0.6));
+  float w = max(ranim.x, -p.z * pxScale) * (persistent > 0.5 ? 1.0 : (1.0 - t * 0.6));
   p.xyz += side * position.y * w;
   gl_Position = projectionMatrix * p;
   vUv = vec2(position.x + 0.5, position.y * 2.0);
@@ -265,7 +286,7 @@ export class RibbonLayer {
     g.instanceCount = persistent ? 0 : cap;
     this.geo = g;
     this.mat = new ShaderMaterial({
-      uniforms: { now: { value: 0 }, persistent: { value: persistent ? 1 : 0 } },
+      uniforms: { now: { value: 0 }, persistent: { value: persistent ? 1 : 0 }, pxScale: RIBBON_PX },
       vertexShader: RIBBON_VERT,
       fragmentShader: RIBBON_FRAG,
       blending: AdditiveBlending,

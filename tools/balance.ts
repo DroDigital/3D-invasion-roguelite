@@ -28,6 +28,7 @@ for (let r = 0; r < runs; r++) {
   rows.push(
     `run ${r}: wave ${String(g.wave).padStart(2)}  t=${(g.time / 60).toFixed(1)}m  lvl ${g.level}  kills ${g.kills}  pop ${pop.toFixed(0)}%  ` +
       `peak enemies ${maxEnemies}  sim ${(ms / steps).toFixed(3)} ms/step  ` +
+      `dmg[siege dive shot wreck tent oth] ${[...g.cityDamage].map((v) => Math.round(v)).join(' ')}  salv ${Math.round(g.salvageEarned)} emLost ${g.emittersLost} items ${g.itemsUsed} def ${g.defense.modules.map((m) => `${m.def.icon}${m.tier + 1}`).join(' ')}  ` +
       `weapons ${g.arsenal.weapons.map((w) => `${w.def.icon}${w.def.evolved ? '*' : w.tier + 1}`).join(' ')}`,
   );
 }

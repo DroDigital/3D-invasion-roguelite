@@ -16,7 +16,10 @@ export const ROLE_ABDUCTOR = 2;
 export const ROLE_SABOTEUR = 3;
 export const ROLE_CARRIER = 4;
 export const ROLE_BOSS = 5;
-export const ROLE_IDS = ['invader', 'destroyer', 'abductor', 'saboteur', 'carrier', 'boss'] as const;
+export const ROLE_GUNSHIP = 6;
+export const ROLE_HORROR = 7;
+export const ROLE_TENTACLE = 8;
+export const ROLE_IDS = ['invader', 'destroyer', 'abductor', 'saboteur', 'carrier', 'boss', 'gunship', 'horror', 'tentacle'] as const;
 
 /** Struct-of-arrays enemy pool in the Earth-fixed frame. Slots are reused; `gen`
  *  changes on every reuse so stale references (projectiles) can be detected. */
@@ -74,6 +77,15 @@ export class EnemyPool {
   readonly cloaked = new Uint8Array(MAX_ENEMIES);
   /** Swarm fodder (cheap kills, rendered with a low-poly mesh). */
   readonly fodder = new Uint8Array(MAX_ENEMIES);
+  /** Seconds until the next ranged volley. */
+  readonly atk = new Float32Array(MAX_ENEMIES);
+  /** Brood launch timer (carriers, bosses, horrors). */
+  readonly btimer = new Float32Array(MAX_ENEMIES);
+  /** Tentacles: the body they grow from (slot + generation). */
+  readonly parent = new Int16Array(MAX_ENEMIES);
+  readonly parentGen = new Uint16Array(MAX_ENEMIES);
+  /** Boss / horror rage phase (0..2), advanced at health thresholds. */
+  readonly phase = new Uint8Array(MAX_ENEMIES);
   /** Per-enemy random phase for movement wobble and cloak cycles. */
   readonly seed = new Float32Array(MAX_ENEMIES);
   count = 0;
@@ -102,6 +114,9 @@ export class EnemyPool {
     this.mark[i] = this.markT[i] = 0;
     this.cloaked[i] = 0;
     this.fodder[i] = 0;
+    this.atk[i] = this.btimer[i] = 0;
+    this.parent[i] = -1;
+    this.phase[i] = 0;
     this.count++;
     return i;
   }

@@ -16,11 +16,19 @@ import { gainSalvage, healCities, runTriggers } from './damage';
 import { EnemyPool } from './enemies';
 import { applyOffer, banishOffer, Offer, openLevelUp, rerollOffers, rollStartingWeapons } from './offers';
 import { FieldPool, ProjectilePool } from './projectiles';
-import { buyShopItem, leaveShop, openShop, rerollShop, ShopState } from './shop';
+import { buyArmory, buyShopItem, leaveShop, openShop, rerollShop, ShopState } from './shop';
 import { updateWaves } from './waves';
 import { Arsenal } from './weapons';
+import { DefenseGrid, recomputeDefense, updateDefense } from './defense';
+import { EnemyShotPool, updateEnemyShots } from './hostile';
+import { updateWrecks, WreckPool } from './wrecks';
+import { HeldItem, Placed, updatePlaced, useItem } from './consumables';
+import { DirectiveMods, noDirectives } from './directives';
+import type { DirectiveDef } from '../data/types';
 
 export const STEP = 1 / 60;
+/** Weapon slots before passives and shop purchases: fewer than there are weapons, so builds commit. */
+export const BASE_SLOTS = 6;
 
 // One-frame visual/audio events: [kind, x, y, z, x2, y2, z2, param].
 export const FX_HIT = 0;
@@ -47,6 +55,24 @@ export const FX_CITY_SHIELD = 20;
 export const FX_DAMAGE = 21; // x2: amount, p: 1 if critical
 export const FX_KILL = 22; // p: alien tier, x2: role
 export const FX_ALLY_SHOT = 23; // line ally -> target
+export const FX_IMPACT = 24; // ground strike; p: size (crater + scorch)
+export const FX_ELASER = 25; // alien laser line; p: species
+export const FX_AEGIS = 26; // shell hit; p: strength
+export const FX_FLAK = 27; // flak burst at x; x2: battery; p: 0 shot, 1 wreck, 2 alien
+export const FX_EMITTER_DOWN = 28; // p: weapon slot
+export const FX_SLAM = 29; // tentacle slam on a city; p: size
+export const FX_TESLA = 30; // arc pylon -> enemy
+export const FX_INTERCEPT = 31; // missile silo -> enemy
+export const FX_MINE = 32; // p: radius
+export const FX_BOSS_PHASE = 33; // p: scale
+export const FX_SCORCH = 34; // render-only burn mark; p: size
+export const FX_ESHOT = 35; // alien shot fired (muzzle + audio); x2: target; p: kind
+export const FX_AEGIS_DOWN = 36;
+export const FX_NUKE = 37; // p: radius
+export const FX_CRYO = 38; // p: radius
+export const FX_PLACE = 39; // p: radius
+export const FX_TURRET = 40; // line turret -> enemy
+export const FX_TENTACLE = 41; // a tentacle erupts; x2: body
 const FX_CAP = 4096;
 export const FX_STRIDE = 8;
 
@@ -87,6 +113,24 @@ export class Game {
   readonly fields = new FieldPool();
   readonly arsenal = new Arsenal();
   readonly allies = new AllyPool();
+  readonly hostile = new EnemyShotPool();
+  readonly wrecks = new WreckPool();
+  readonly defense = new DefenseGrid();
+  /** Consumables held, and what they have placed on the globe. */
+  readonly items: HeldItem[] = [];
+  readonly placed: Placed[] = [];
+  itemsUsed = 0;
+  /** Extra fighters scrambled by consumables this wave. */
+  bonusAllies = 0;
+  squadronTarget = -1;
+  emittersLost = 0;
+  /** City damage taken by source (sim/damage.ts DMG_*). */
+  readonly cityDamage = new Float64Array(6);
+  /** This wave's directives. */
+  directives: DirectiveDef[] = [];
+  dir: DirectiveMods = noDirectives();
+  /** Raw kill salvage this wave, before diminishing returns. */
+  waveSalvageRaw = 0;
   readonly build = new Build();
   /** Lowest health each city has reached; population only falls with new lows. */
   readonly lowWater = new Float32Array(this.cities.count).fill(CITY_MAX_HEALTH);
@@ -142,6 +186,7 @@ export class Game {
   spawnInterval = 0;
   clusterId = -1;
   clusterDir = [0, 0, 1];
+  clusterRad = 5;
 
   readonly fx = new Float32Array(FX_CAP * FX_STRIDE);
   fxCount = 0;
@@ -181,7 +226,8 @@ export class Game {
   recompute(): void {
     const before = this.arsenal.slots;
     this.build.recompute(this.arsenal.weapons);
-    this.arsenal.slots = Math.max(before, 8 + Math.round(this.build.global('slots')) + (this.extraSlots ?? 0));
+    this.arsenal.slots = Math.max(before, BASE_SLOTS + Math.round(this.build.global('slots')) + (this.extraSlots ?? 0));
+    recomputeDefense(this);
   }
   /** Slots bought in the shop. */
   extraSlots = 0;
@@ -227,6 +273,10 @@ export class Game {
     updateAliens(this, dt * this.alienScale, dt);
     updateCombat(this, dt);
     updateAllies(this, dt);
+    updateEnemyShots(this, dt * this.alienScale);
+    updateWrecks(this, dt);
+    updateDefense(this, dt);
+    updatePlaced(this, dt);
     if (this.build.cityRegen > 0) healCities(this, this.build.cityRegen * dt);
 
     const c = this.cities;
@@ -264,6 +314,10 @@ export class Game {
     return buyShopItem(this, i);
   }
 
+  buyArmory(i: number): boolean {
+    return buyArmory(this, i);
+  }
+
   rerollShop(): boolean {
     return rerollShop(this);
   }
@@ -275,6 +329,10 @@ export class Game {
   /** Called by the wave system when a wave is cleared. */
   onWaveCleared(): void {
     openShop(this);
+  }
+
+  useItem(i: number, target?: { point?: [number, number, number]; city?: number }): boolean {
+    return useItem(this, i, target);
   }
 
   useAbility(i: number, target?: { point?: [number, number, number]; city?: number }): boolean {
