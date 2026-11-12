@@ -76,6 +76,7 @@ async function boot(): Promise<void> {
       pipeline.resize(window.innerWidth, window.innerHeight);
     }
     PS2.affine.value = s.affine ? 1 : 0;
+    earth.setRetro(!s.hd);
     audio.volumes = { master: s.master, sfx: s.sfx, music: s.music };
     audio.applyVolumes();
   };

@@ -43,7 +43,7 @@ export function defaultProfile(): Profile {
     unlocks: [],
     commander: 'vance',
     loadout: [],
-    settings: { dither: true, crt: false, vertexSnap: false, affine: false, bloom: true, hd: true, gfx: 2, shake: true, damageNumbers: true, showFps: false, seenHint: false, master: 0.8, sfx: 0.8, music: 0.5 },
+    settings: { dither: true, crt: true, vertexSnap: true, affine: true, bloom: true, hd: false, gfx: 3, shake: true, damageNumbers: true, showFps: false, seenHint: false, master: 0.8, sfx: 0.8, music: 0.5 },
     stats: { runs: 0, bestWave: 0, kills: 0, evolutions: 0 },
   };
 }
@@ -55,9 +55,10 @@ export function loadProfile(): Profile {
     const p = JSON.parse(raw) as Partial<Profile>;
     const d = defaultProfile();
     const settings = { ...d.settings, ...p.settings };
-    if ((p.settings?.gfx ?? 1) < 2) {
-      // Visual overhaul: move existing players onto the new HD defaults once; Retro stays one toggle away.
-      Object.assign(settings, { hd: true, crt: false, vertexSnap: false, affine: false, gfx: 2 });
+    if ((p.settings?.gfx ?? 1) < 3) {
+      // The retro PS2 look is the default; HD is one toggle away. Profiles moved to HD by the
+      // previous default are put back on retro once.
+      Object.assign(settings, { hd: false, dither: true, crt: true, vertexSnap: true, affine: true, gfx: 3 });
     }
     return { ...d, ...p, settings, stats: { ...d.stats, ...p.stats }, version: 1 };
   } catch {

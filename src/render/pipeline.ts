@@ -41,7 +41,7 @@ export class Pipeline {
   private outMat: ShaderMaterial;
   width = 640;
   height = INTERNAL_HEIGHT;
-  settings: PostSettings = { bloom: true, dither: true, crt: false, hd: true };
+  settings: PostSettings = { bloom: true, dither: true, crt: true, hd: false };
   private samples = -1;
   /** Full-screen white flash amount (abilities, evolutions). */
   flash = 0;
