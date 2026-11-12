@@ -27,7 +27,13 @@ export class Bot {
       g.choose(best);
       return;
     }
+    if (g.phase === 'victory') {
+      g.continueEndless();
+      return;
+    }
     if (g.phase === 'shop' && g.shop) {
+      // Take the moderate operation about half the time.
+      if (g.ops.length > 1 && this.rng.next() < 0.5) g.chooseOp(1);
       const order = g.shop.stock.map((_, i) => i).sort((a, b) => g.shop!.stock[a].price - g.shop!.stock[b].price);
       for (const i of order) if (!g.shop.stock[i].sold && g.shop.stock[i].price <= g.salvage) g.buy(i);
       // Keep a couple of cheap consumables on hand.

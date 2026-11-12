@@ -4,6 +4,7 @@ import type { Game } from '../sim/game';
 import { readyEvolutions } from '../sim/offers';
 import { tierOf } from '../sim/weapons';
 import { describeDefense, describeUpgrade, describeWeapon } from './describe';
+import { CITY_PERKS, FINAL_WAVE, SECTORS, sectorOf } from '../data/campaign';
 import { defenseIsMax } from '../sim/defense';
 import { ROLE_HORROR } from '../sim/enemies';
 import { button, Cell, fmtPop, fmtTime, h } from './dom';
@@ -21,6 +22,8 @@ export interface HudCallbacks {
   onRetry(): void;
   onNewRun(): void;
   onMenu(): void;
+  /** After victory: carry on in endless mode. */
+  onContinue(): void;
 }
 
 const MAX_THREAT_ROWS = 7;
@@ -70,6 +73,10 @@ export class Hud {
   private gameoverBody: HTMLElement;
   private gameoverTitle: HTMLElement;
   private overShown = false;
+  private victoryShown = false;
+  private goBtns!: HTMLElement;
+  private sector!: Cell;
+  private perkKey = '';
   showFps = false;
   private dirEl!: HTMLElement;
   private dirKey = '';
@@ -92,6 +99,9 @@ export class Hud {
     const hs = h('div', 'wave-hostiles');
     this.hostiles = new Cell(hs);
     tl.append(st, hs);
+    const sc = h('div', 'wave-sector');
+    this.sector = new Cell(sc);
+    tl.insertBefore(sc, st);
 
     // ---- top-centre: population ----
     const tc = h('div', 'hpanel');
@@ -203,9 +213,8 @@ export class Hud {
     this.gameoverTitle = h('h2', undefined, 'DEFENSE FAILED // EARTH HAS FALLEN');
     panel.append(this.gameoverTitle);
     this.gameoverBody = h('div', 'body');
-    const btns = h('div', 'btns');
-    btns.append(button('RETRY SEED', () => cb.onRetry()), button('NEW RUN', () => cb.onNewRun()), button('COMMAND', () => cb.onMenu()));
-    panel.append(this.gameoverBody, btns);
+    this.goBtns = h('div', 'btns');
+    panel.append(this.gameoverBody, this.goBtns);
     this.gameover.append(panel);
     void seed;
 
@@ -259,6 +268,7 @@ export class Hud {
     const g = this.game;
     const c = g.cities;
     this.wave.set(g.wave);
+    this.sector.set(g.endless ? 'ENDLESS WAR' : g.wave > 0 ? `${SECTORS[sectorOf(g.wave)].name.split(' // ')[0]}  ${g.wave}/${FINAL_WAVE}${g.threatLevel ? `  T${g.threatLevel}` : ''}` : g.threatLevel ? `THREAT ${g.threatLevel}` : '');
     const fighting = g.phase === 'spawning' || g.phase === 'clearing';
     this.status.set(g.phase === 'intermission' ? (g.wave === 0 ? 'STAND BY' : `NEXT WAVE ${Math.ceil(g.nextWaveIn)}s`) : g.phase === 'shop' ? 'RESUPPLY' : fighting ? 'ENGAGED' : '');
     this.hostiles.set(fighting ? `${g.hostiles} HOSTILE` : '');
@@ -320,6 +330,11 @@ export class Hud {
     }
 
     if (g.phase === 'gameover' && !this.overShown) this.showGameOver(points);
+    if (g.phase === 'victory' && !this.victoryShown) this.showGameOver(points, true);
+    if (g.phase !== 'victory' && this.victoryShown && !this.overShown) {
+      this.victoryShown = false;
+      this.gameover.classList.remove('on');
+    }
   }
 
   /** Only cities that need attention: under attack or damaged, worst first. */
@@ -352,7 +367,9 @@ export class Hud {
       fill.style.transform = `scaleX(${r.toFixed(3)})`;
       fill.className = r > 0.6 ? '' : r > 0.3 ? 'warn' : 'crit';
       bar.append(fill);
-      row.append(h('span', 'cname', CITIES[i].name), h('span', 'tpop', fmtPop(c.population[i])), bar, h('span', 'tthreat', g.threat[i] > 0 ? `▲${g.threat[i]}` : g.cityShield[i] > 0 ? '◈' : ''));
+      const perk = h('span', 'tperk', CITY_PERKS[CITIES[i].perk].name.slice(0, 3));
+      perk.title = `${CITY_PERKS[CITIES[i].perk].name}: ${CITY_PERKS[CITIES[i].perk].text}`;
+      row.append(h('span', 'cname', CITIES[i].name), perk, h('span', 'tpop', fmtPop(c.population[i])), bar, h('span', 'tthreat', g.threat[i] > 0 ? `▲${g.threat[i]}` : g.cityShield[i] > 0 ? '◈' : ''));
       row.addEventListener('click', () => this.cb.onCity(i));
       row.addEventListener('mouseenter', () => this.cb.onCityHover(i));
       row.addEventListener('mouseleave', () => this.cb.onCityHover(-1));
@@ -418,7 +435,20 @@ export class Hud {
       this.tip(p, () => this.listTip('PASSIVE SYSTEMS', passives.map((u) => [`${u.name.toUpperCase()} x${b.stacksOf(u.id)}`, describeUpgrade(u).join(' / ')])));
       this.tip(r, () => this.listTip('RELICS', relics.map((u) => [u.name.toUpperCase(), u.text ?? ''])));
       this.systems.append(p, r);
+      const pc = h('div', 'chip perk', '◎ CITY PERKS');
+      this.tip(pc, () => {
+        const c = g.cities;
+        const rows: [string, string][] = [];
+        for (const [id, def] of Object.entries(CITY_PERKS)) {
+          const names = CITIES.map((ct, i) => ({ ct, i })).filter((x) => x.ct.perk === id);
+          const up = names.filter((x) => c.health[x.i] > 0).length;
+          rows.push([`${def.name} ${up}/${names.length}`, `${def.text} per city: ${names.map((x) => (c.health[x.i] > 0 ? x.ct.name : `${x.ct.name} (LOST)`)).join(', ')}`]);
+        }
+        return this.listTip('CITY PERKS // LOST WITH THE CITY', rows);
+      });
+      this.systems.append(pc);
     }
+    void this.perkKey;
   }
 
   private weaponTip(i: number): HTMLElement {
@@ -557,10 +587,15 @@ export class Hud {
     });
   }
 
-  private showGameOver(points: number): void {
+  private showGameOver(points: number, victory = false): void {
     const g = this.game;
     const c = g.cities;
-    this.overShown = true;
+    if (victory) this.victoryShown = true;
+    else this.overShown = true;
+    this.gameoverBody.textContent = '';
+    this.goBtns.textContent = '';
+    if (victory) this.goBtns.append(button('ENDLESS WAR >', () => this.cb.onContinue(), 'cmd primary'));
+    this.goBtns.append(button('RETRY SEED', () => this.cb.onRetry()), button('NEW RUN', () => this.cb.onNewRun()), button('COMMAND', () => this.cb.onMenu()));
     const line = (k: string, v: string): HTMLElement => {
       const d = h('div', undefined, k);
       d.append(h('b', undefined, v));
@@ -581,7 +616,8 @@ export class Hud {
       line('COMMAND POINTS EARNED', `+${points}`),
     );
     this.gameoverBody.lastElementChild!.classList.add('points');
-    this.gameoverTitle.textContent = c.isLost() ? 'DEFENSE FAILED // EARTH HAS FALLEN' : 'RUN ABANDONED // COMMAND RELIEVED';
+    this.gameoverTitle.textContent = victory ? `EARTH HOLDS // THE INVASION IS BROKEN${g.threatLevel ? ` // THREAT ${g.threatLevel}` : ''}` : c.isLost() ? (g.won ? 'EARTH FELL IN THE ENDLESS WAR' : 'DEFENSE FAILED // EARTH HAS FALLEN') : 'RUN ABANDONED // COMMAND RELIEVED';
+    this.gameover.classList.toggle('victory', victory);
     this.gameover.classList.add('on');
   }
 }

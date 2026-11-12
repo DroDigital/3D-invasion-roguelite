@@ -83,7 +83,7 @@ export function recomputeDefense(g: Game): void {
   d.abductReduce = d.v('bunkers')?.abduct ?? 0;
   d.emitterArmor = 1 + (d.v('wards')?.hp ?? 0);
   d.jamReduce = d.v('wards')?.jam ?? 0;
-  d.rebuildMul = d.v('nanites')?.rebuild ?? 1;
+  d.rebuildMul = (d.v('nanites')?.rebuild ?? 1) * (1 + 0.25 * g.perkCount('shipyard'));
   d.decoyChance = d.v('decoy')?.chance ?? 0;
   const a = d.v('aegis');
   const prev = d.aegisMax;

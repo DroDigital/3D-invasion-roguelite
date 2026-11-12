@@ -25,6 +25,9 @@ import { updateWrecks, WreckPool } from './wrecks';
 import { HeldItem, Placed, updatePlaced, useItem } from './consumables';
 import { DirectiveMods, noDirectives } from './directives';
 import type { DirectiveDef } from '../data/types';
+import type { Operation } from './operations';
+import { CITY_PERKS, CityPerk, MAX_THREAT } from '../data/campaign';
+import { CITIES } from '../data/cities';
 
 export const STEP = 1 / 60;
 /** Weapon slots before passives and shop purchases: fewer than there are weapons, so builds commit. */
@@ -73,10 +76,13 @@ export const FX_CRYO = 38; // p: radius
 export const FX_PLACE = 39; // p: radius
 export const FX_TURRET = 40; // line turret -> enemy
 export const FX_TENTACLE = 41; // a tentacle erupts; x2: body
+export const FX_FOCUS = 42; // focus beacon placed
+/** Seconds a focus beacon lasts. */
+export const FOCUS_TIME = 8;
 const FX_CAP = 4096;
 export const FX_STRIDE = 8;
 
-export type Phase = 'intermission' | 'spawning' | 'clearing' | 'shop' | 'gameover';
+export type Phase = 'intermission' | 'spawning' | 'clearing' | 'shop' | 'gameover' | 'victory';
 
 export interface RunConfig {
   seed: string;
@@ -86,6 +92,8 @@ export interface RunConfig {
   abilitySlots?: number;
   /** Meta unlock ids owned; gate content and starting weapons. */
   unlocks?: string[];
+  /** Threat Level (0 = standard): optional difficulty tiers unlocked by winning. */
+  threat?: number;
 }
 
 export interface AbilityState {
@@ -131,6 +139,19 @@ export class Game {
   dir: DirectiveMods = noDirectives();
   /** Raw kill salvage this wave, before diminishing returns. */
   waveSalvageRaw = 0;
+  readonly threatLevel: number;
+  /** Past the final wave: the campaign is won and the war goes on. */
+  endless = false;
+  won = false;
+  /** Player focus beacon: weapons prioritise aliens above this point while focusT > 0. */
+  readonly focus = new Float32Array(3);
+  focusT = 0;
+  /** Operations offered for the next wave, the pick, and the one being fought. */
+  ops: Operation[] = [];
+  opChoice = 0;
+  activeOp: Operation | null = null;
+  /** An operation reward: the next depot stocks a relic. */
+  relicOwed = false;
   readonly build = new Build();
   /** Lowest health each city has reached; population only falls with new lows. */
   readonly lowWater = new Float32Array(this.cities.count).fill(CITY_MAX_HEALTH);
@@ -202,6 +223,7 @@ export class Game {
     this.combatRng = this.rng.stream('combat');
     this.shopRng = this.rng.stream('shop');
     this.unlocks = new Set(this.config.unlocks ?? []);
+    this.threatLevel = Math.max(0, Math.min(MAX_THREAT, this.config.threat ?? 0));
     for (const [gate, ids] of Object.entries(CONTENT_GATES)) if (!this.unlocks.has(gate)) for (const id of ids) this.locked.add(id);
 
     const cmd = COMMANDERS.find((c) => c.id === this.config.commander);
@@ -225,6 +247,10 @@ export class Game {
 
   recompute(): void {
     const before = this.arsenal.slots;
+    // City perks: every standing city lends its bonus.
+    const perks = this.build.perks;
+    perks.length = 0;
+    for (let i = 0; i < this.cities.count; i++) if (this.cities.health[i] > 0) perks.push(...CITY_PERKS[CITIES[i].perk].effects);
     this.build.recompute(this.arsenal.weapons);
     this.arsenal.slots = Math.max(before, BASE_SLOTS + Math.round(this.build.global('slots')) + (this.extraSlots ?? 0));
     recomputeDefense(this);
@@ -242,7 +268,7 @@ export class Game {
   }
 
   get paused(): boolean {
-    return this.phase === 'gameover' || this.phase === 'shop' || this.offer !== null;
+    return this.phase === 'gameover' || this.phase === 'victory' || this.phase === 'shop' || this.offer !== null;
   }
 
   emitFx(kind: number, x: number, y: number, z: number, x2 = 0, y2 = 0, z2 = 0, p = 0): void {
@@ -268,6 +294,7 @@ export class Game {
     if (this.paused) return;
     this.time += dt;
     updateAbilities(this, dt);
+    if (this.focusT > 0) this.focusT -= dt;
     updateWaves(this, dt);
     for (const w of this.arsenal.weapons) w.jam = 0;
     updateAliens(this, dt * this.alienScale, dt);
@@ -328,6 +355,36 @@ export class Game {
 
   /** Called by the wave system when a wave is cleared. */
   onWaveCleared(): void {
+    openShop(this);
+  }
+
+  /** Standing cities with this perk. */
+  perkCount(perk: CityPerk): number {
+    let n = 0;
+    for (let i = 0; i < this.cities.count; i++) if (this.cities.health[i] > 0 && CITIES[i].perk === perk) n++;
+    return n;
+  }
+
+  /** Mark a point on the globe (unit vector): every weapon prioritises aliens above it for a while. */
+  setFocus(p: [number, number, number]): void {
+    if (this.paused) return;
+    this.focus[0] = p[0];
+    this.focus[1] = p[1];
+    this.focus[2] = p[2];
+    this.focusT = FOCUS_TIME;
+    this.emitFx(FX_FOCUS, p[0], p[1], p[2]);
+  }
+
+  /** Pick the operation for the next wave (shop screen). */
+  chooseOp(i: number): void {
+    if (i >= 0 && i < this.ops.length) this.opChoice = i;
+  }
+
+  /** After victory: keep fighting in endless mode. */
+  continueEndless(): void {
+    if (this.phase !== 'victory') return;
+    this.endless = true;
+    this.addLog('ENDLESS WAR: THE INVASION DOES NOT STOP', 'boss');
     openShop(this);
   }
 

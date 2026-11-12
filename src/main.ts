@@ -6,6 +6,7 @@ import { lazyLoadModels, loadTexture, preloadModels } from './core/assets';
 import { randomSeed, Rng } from './core/rng';
 import { abilitySlots, loadProfile, Profile, saveProfile } from './core/save';
 import { runReward } from './data/meta';
+import { MAX_THREAT, threatRewardMul } from './data/campaign';
 import { CityMarkers } from './render/cityMarkers';
 import { CombatView } from './render/combatView';
 import { Earth } from './render/earth';
@@ -39,6 +40,11 @@ interface Run {
   shop: ShopScreen;
   floaters: Floaters;
   rewarded: boolean;
+  /** Victory paid out (the run may continue in endless mode). */
+  wonPaid: boolean;
+  paid: number;
+  killsCounted: number;
+  evosCounted: number;
   points: number;
   evolutions: number;
 }
@@ -115,20 +121,29 @@ async function boot(): Promise<void> {
     canvas.classList.remove('targeting');
   };
 
-  /** Award command points once, when the run ends. */
-  const settle = (r: Run): void => {
-    if (r.rewarded) return;
-    r.rewarded = true;
+  /** Award command points: at victory, and again for any endless waves when the run finally ends. */
+  const settle = (r: Run, victory = false): void => {
+    if (victory ? r.wonPaid : r.rewarded) return;
     const g = r.game;
-    r.points = runReward(g.wave, g.kills, g.bossKills);
-    profile.points += r.points;
-    profile.totalPoints += r.points;
-    profile.stats.runs++;
+    const total = Math.round(runReward(g.wave, g.kills, g.bossKills) * threatRewardMul(g.threatLevel) * (g.won ? 1.5 : 1));
+    const gain = Math.max(0, total - r.paid);
+    if (r.paid === 0) profile.stats.runs++;
+    r.paid = total;
+    r.points = gain;
+    if (victory) {
+      r.wonPaid = true;
+      profile.stats.wins = (profile.stats.wins ?? 0) + 1;
+      profile.stats.maxThreat = Math.max(profile.stats.maxThreat ?? 0, Math.min(MAX_THREAT, g.threatLevel + 1));
+    } else r.rewarded = true;
+    profile.points += gain;
+    profile.totalPoints += gain;
     profile.stats.bestWave = Math.max(profile.stats.bestWave, g.wave);
-    profile.stats.kills += g.kills;
-    profile.stats.evolutions += r.evolutions;
+    profile.stats.kills += g.kills - r.killsCounted;
+    r.killsCounted = g.kills;
+    profile.stats.evolutions += r.evolutions - r.evosCounted;
+    r.evosCounted = r.evolutions;
     saveProfile(profile);
-    audio.play('gameover', 0.9);
+    audio.play(victory ? 'evolve' : 'gameover', 0.9);
   };
 
   const startRun = (seed: string): void => {
@@ -141,6 +156,7 @@ async function boot(): Promise<void> {
       abilities: profile.loadout,
       abilitySlots: abilitySlots(profile),
       unlocks: profile.unlocks,
+      threat: Math.min(profile.threat ?? 0, profile.stats.maxThreat ?? 0),
     });
     const markers = new CityMarkers(game.cities, earth.surface, labels);
     const r: Run = {
@@ -172,6 +188,9 @@ async function boot(): Promise<void> {
         }),
         onRetry: () => startRun(seed),
         onNewRun: () => startRun(randomSeed()),
+        onContinue: () => {
+          run?.game.continueEndless();
+        },
         onMenu: () => {
           endRun();
           showMenu();
@@ -181,6 +200,10 @@ async function boot(): Promise<void> {
       shop: new ShopScreen(uiRoot, game),
       floaters: new Floaters(uiRoot, game, earth.surface),
       rewarded: false,
+      wonPaid: false,
+      paid: 0,
+      killsCounted: 0,
+      evosCounted: 0,
       points: 0,
       evolutions: 0,
     };
@@ -196,7 +219,7 @@ async function boot(): Promise<void> {
       const hint = h('div', 'hpanel hint');
       hint.innerHTML =
         '<b>BRIEFING</b> // Your weapons aim and fire on their own. You build: pick upgrades with <b>1-5</b>, ' +
-        'buy in the depot between waves, and fire abilities with <b>Q</b>/<b>E</b>. <b>TAB</b> game speed, ' +
+        'buy in the depot between waves, fire abilities with <b>Q</b>/<b>E</b> and items with <b>1-6</b>, and <b>right-click</b> the globe to focus fire. Hold for 30 waves. <b>TAB</b> game speed, ' +
         '<b>SPACE</b> pause, <b>F</b> jump to the hottest city, drag/scroll to look around.';
       const ok = h('button', 'cmd', 'UNDERSTOOD');
       ok.addEventListener('click', () => {
@@ -279,7 +302,29 @@ async function boot(): Promise<void> {
     downX = e.clientX;
     downY = e.clientY;
   });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  /** Unit direction on the globe under a screen point, in the planet's frame; null off the globe. */
+  const globePoint = (cx: number, cy: number): Vector3 | null => {
+    ndc.set((cx / window.innerWidth) * 2 - 1, -(cy / window.innerHeight) * 2 + 1);
+    ray.setFromCamera(ndc, orbit.camera);
+    const o = ray.ray.origin;
+    const d = ray.ray.direction;
+    const b = o.dot(d);
+    const disc = b * b - (o.lengthSq() - 1);
+    if (disc < 0) return null;
+    const hit = tmp.copy(d).multiplyScalar(-b - Math.sqrt(disc)).add(o);
+    return earth.surface.worldToLocal(hit).normalize();
+  };
   canvas.addEventListener('pointerup', (e) => {
+    // Right click: drop a focus beacon; every weapon engages aliens above it first.
+    if (e.button === 2 && run && Math.hypot(e.clientX - downX, e.clientY - downY) <= 6) {
+      const p = globePoint(e.clientX, e.clientY);
+      if (p) {
+        run.game.setFocus([p.x, p.y, p.z]);
+        audio.play('ui_click', 0.6, 0.7);
+      }
+      return;
+    }
     if (targeting === null || !run || Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
     ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
     ray.setFromCamera(ndc, orbit.camera);
@@ -397,6 +442,7 @@ async function boot(): Promise<void> {
       }
       if (bot && g.paused) bot.act(g);
       if (g.phase === 'gameover') settle(r);
+      else if (g.phase === 'victory') settle(r, true);
       // Music follows the fight.
       audio.playMusic(g.bossSlot >= 0 ? 'boss' : g.phase === 'spawning' || g.phase === 'clearing' ? 'combat' : 'calm');
     } else if (menu) {

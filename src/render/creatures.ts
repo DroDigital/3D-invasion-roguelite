@@ -209,6 +209,15 @@ const BUILDERS: Record<string, () => BufferGeometry> = {
     ...limb([0.4, 0.3, -0.2], [1, 0.4, -0.5], 1.1, 0.14, 0.35, 4), ...limb([-0.4, 0.3, -0.2], [-1, 0.4, -0.5], 1.1, 0.14, -0.35, 4),
     ...ring(7, (a) => spike(0.06, 0.35, [Math.cos(a) * 0.3, 0.55, Math.sin(a) * 0.2], [Math.cos(a) * 0.4, 1, Math.sin(a) * 0.3], BONE, 4)),
   ]),
+  // The World-Eater: a moon-sized maw ringed with eyes and a crown of spines.
+  eater: () => finish([
+    blob(0.55, 0.5, 0.55, [0, 0, -0.05], 17, 0.14),
+    tint(new SphereGeometry(0.26, 14, 8).scale(1, 1, 0.35).translate(0, 0, 0.44), GLOW),
+    ...ring(18, (a) => spike(0.05, 0.3, [Math.cos(a) * 0.36, Math.sin(a) * 0.36, 0.38], [-Math.cos(a), -Math.sin(a), 0.5], BONE, 4)),
+    ...ring(12, (a, k) => eye(0.04 + (k % 3) * 0.012, [Math.cos(a) * 0.5, Math.sin(a) * 0.46, 0.18])),
+    ...ring(11, (a, k) => spike(0.06, 0.35 + (k % 2) * 0.25, [Math.cos(a) * 0.4, 0.38 + Math.sin(a) * 0.08, Math.sin(a) * 0.35 - 0.1], [Math.cos(a) * 0.3, 1, Math.sin(a) * 0.3 - 0.3], BONE, 4)),
+    ...limb([0.45, -0.2, -0.3], [1, -0.4, -0.6], 1.0, 0.13, 0.4, 4), ...limb([-0.45, -0.2, -0.3], [-1, -0.4, -0.6], 1.0, 0.13, -0.4, 4),
+  ]),
   // The Brood Below: a mountain of egg sacs.
   brood: () => finish([
     blob(0.5, 0.42, 0.55, [0, 0, 0], 16, 0.12),
@@ -229,7 +238,7 @@ const BUILDERS: Record<string, () => BufferGeometry> = {
 
 /** Decorative tentacles drawn on each creature body (the tentacle layer animates them). */
 export const CREATURE_TENTACLES: Record<string, number> = {
-  spawn: 0, watcher: 5, maw: 4, leech: 0, lamprey: 0, sac: 4, leviathan: 10, horror: 8, polyp: 7, choir: 6, hollow: 8, dreamer: 14, brood: 10,
+  spawn: 0, watcher: 5, maw: 4, leech: 0, lamprey: 0, sac: 4, leviathan: 10, horror: 8, polyp: 7, choir: 6, hollow: 8, dreamer: 14, brood: 10, eater: 14,
 };
 
 const cache = new Map<string, BufferGeometry | null>();

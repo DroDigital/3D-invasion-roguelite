@@ -1,6 +1,7 @@
 import { audio } from '../audio/audio';
 import { abilityById } from '../data/abilities';
 import { COMMANDERS, UNLOCKS } from '../data/meta';
+import { FINAL_WAVE, THREAT_LEVELS, threatRewardMul } from '../data/campaign';
 import { abilitySlots, buyUnlock, owns, Profile, saveProfile, unlockedAbilities, unlockedCommanders } from '../core/save';
 import { button, h } from './dom';
 import { openSettings } from './settings';
@@ -51,6 +52,30 @@ export class Menu {
     }, 'cmd primary big');
     body.append(launch, seedRow);
 
+    // Threat Levels: unlocked one at a time by winning the campaign.
+    const maxT = p.stats.maxThreat ?? 0;
+    body.append(h('h3', undefined, maxT > 0 ? 'THREAT LEVEL' : 'CAMPAIGN'));
+    if (maxT === 0) body.append(h('div', 'tdesc-solo', `Hold Earth through ${FINAL_WAVE} waves to break the invasion. Victory unlocks Threat Levels.`));
+    else {
+      const sel = h('div', 'threat-sel');
+      const desc = h('div', 'tdesc');
+      const paint = (): void => {
+        sel.querySelectorAll('button').forEach((b, i) => b.classList.toggle('sel', i === (p.threat ?? 0)));
+        const t = THREAT_LEVELS[p.threat ?? 0];
+        desc.textContent = `${t.text}${t.level ? ` (all lower levels apply)  //  POINTS x${threatRewardMul(t.level).toFixed(2)}` : ''}`;
+      };
+      for (let t = 0; t <= maxT; t++) {
+        sel.append(button(t === 0 ? 'STD' : `T${t}`, () => {
+          p.threat = t;
+          saveProfile(p);
+          paint();
+        }, 'cmd'));
+      }
+      sel.append(desc);
+      body.append(sel);
+      paint();
+    }
+
     body.append(h('h3', undefined, 'COMMANDER'));
     const cmds = h('div', 'choice-list');
     const avail = unlockedCommanders(p);
@@ -99,7 +124,7 @@ export class Menu {
     })));
     body.append(misc);
     const st = p.stats;
-    body.append(h('div', 'note', `RUNS ${st.runs}  //  BEST WAVE ${st.bestWave}  //  KILLS ${st.kills}  //  EVOLUTIONS ${st.evolutions}`));
+    body.append(h('div', 'note', `RUNS ${st.runs}  //  VICTORIES ${st.wins ?? 0}  //  BEST WAVE ${st.bestWave}  //  KILLS ${st.kills}  //  EVOLUTIONS ${st.evolutions}`));
     left.append(body);
 
     const right = h('div', 'panel menu-col');

@@ -30,7 +30,9 @@ export interface Profile {
   commander: string;
   loadout: string[];
   settings: Settings;
-  stats: { runs: number; bestWave: number; kills: number; evolutions: number };
+  stats: { runs: number; bestWave: number; kills: number; evolutions: number; wins: number; maxThreat: number };
+  /** Threat Level picked for the next run (0..stats.maxThreat). */
+  threat: number;
 }
 
 const KEY = 'orbital-watch/profile';
@@ -44,7 +46,8 @@ export function defaultProfile(): Profile {
     commander: 'vance',
     loadout: [],
     settings: { dither: true, crt: true, vertexSnap: true, affine: true, bloom: true, hd: false, gfx: 3, shake: true, damageNumbers: true, showFps: false, seenHint: false, master: 0.8, sfx: 0.8, music: 0.5 },
-    stats: { runs: 0, bestWave: 0, kills: 0, evolutions: 0 },
+    stats: { runs: 0, bestWave: 0, kills: 0, evolutions: 0, wins: 0, maxThreat: 0 },
+    threat: 0,
   };
 }
 

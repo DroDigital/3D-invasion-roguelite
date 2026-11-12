@@ -22,18 +22,21 @@ export function noDirectives(): DirectiveMods {
 }
 
 /** How many directives a wave carries: none early, then one, stacking up to four. */
-export function directiveCount(wave: number): number {
-  if (wave < WAVE_RULES.directiveFrom) return 0;
-  return Math.min(4, 1 + Math.floor((wave - WAVE_RULES.directiveFrom) / WAVE_RULES.directiveStep));
+export function directiveCount(wave: number, threat = 0): number {
+  const from = threat >= 2 ? 5 : WAVE_RULES.directiveFrom;
+  if (wave < from) return 0;
+  return Math.min(5, 1 + Math.floor((wave - from) / WAVE_RULES.directiveStep) + (threat >= 2 ? 1 : 0));
 }
 
 /** Roll this wave's directives (deterministic: wave stream). */
 export function rollDirectives(g: Game): void {
   const r = g.waveRng;
-  const n = directiveCount(g.wave);
-  const pool = DIRECTIVES.filter((d) => d.minWave <= g.wave);
-  const out: DirectiveDef[] = [];
-  while (out.length < n && pool.length > 0) {
+  const n = directiveCount(g.wave, g.threatLevel);
+  // The chosen operation's directives come first; the rest are rolled.
+  const out: DirectiveDef[] = [...(g.activeOp?.directives ?? [])];
+  const pool = DIRECTIVES.filter((d) => d.minWave <= g.wave && !out.includes(d));
+  const want = n + out.length;
+  while (out.length < want && pool.length > 0) {
     const i = r.weighted(pool.map((d) => d.weight));
     out.push(pool[i]);
     pool.splice(i, 1);

@@ -6,6 +6,7 @@ import { spawnAlien } from './aliens';
 import { matches, TriggerOn } from './build';
 import { ROLE_ABDUCTOR, ROLE_BOSS, ROLE_HORROR, ROLE_INVADER, ROLE_TENTACLE } from './enemies';
 import { WAVE_RULES } from '../data/aliens';
+import { CITY_PERKS } from '../data/campaign';
 import { spawnWreck } from './wrecks';
 import type { Game } from './game';
 import { FX_BLAST, FX_CITY_FALL, FX_CITY_HIT, FX_EXPLOSION, FX_HIT, FX_KILL, FX_SHIELD_HIT, FX_STRIKE } from './game';
@@ -144,7 +145,7 @@ export function killEnemy(g: Game, i: number, slot: number): void {
 
 /** Kill income: logarithmic per wave, so a flood of kills can't bankroll the whole shop. */
 export function gainKillSalvage(g: Game, amount: number): void {
-  const raw = amount * g.build.salvageGain;
+  const raw = amount * g.build.salvageGain * (g.threatLevel >= 3 ? 0.75 : 1);
   const C = 22 + 3 * g.wave;
   const before = C * Math.log1p(g.waveSalvageRaw / C);
   g.waveSalvageRaw += raw;
@@ -235,7 +236,8 @@ export function damageCity(g: Game, city: number, amount: number, discrete: bool
     c.health[city] = 0;
     losePeople(g, city, c.population[city]);
     g.emitFx(FX_CITY_FALL, c.pos[k], c.pos[k + 1], c.pos[k + 2]);
-    g.addLog(`${CITIES[city].name} HAS FALLEN`, 'warn');
+    g.addLog(`${CITIES[city].name} HAS FALLEN // ${CITY_PERKS[CITIES[city].perk].name} LOST`, 'warn');
+    g.recompute();
     if (g.build.rules.has('martyr')) {
       const e = g.enemies;
       g.emitFx(FX_STRIKE, c.pos[k], c.pos[k + 1], c.pos[k + 2], 0, 0, 0, 0.6);

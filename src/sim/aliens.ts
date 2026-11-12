@@ -61,7 +61,9 @@ export function spawnAlien(g: Game, defIdx: number, tierIdx: number, x: number, 
   }
 
   const growth = opts.fodder ? Math.pow(WAVE_RULES.fodderHpGrowth, Math.max(0, g.wave - 1)) : waveHpMul(g, boss, role, def.elder === true);
-  const maxHp = def.hp * tier.hpMul * growth * (opts.hpMul ?? 1) * g.dir.hpMul;
+  const t = g.threatLevel;
+  const threatHp = (t >= 1 ? 1.2 : 1) * (t >= 5 && (boss || role === ROLE_HORROR) ? 1.4 : 1);
+  const maxHp = def.hp * tier.hpMul * growth * (opts.hpMul ?? 1) * g.dir.hpMul * threatHp;
   e.def[i] = defIdx;
   e.species[i] = speciesIndex.get(def.species)!;
   e.role[i] = role;
@@ -269,7 +271,7 @@ export function updateAliens(g: Game, dt: number, realDt: number): void {
         e.atk[i] -= dt * g.dir.fireRateMul * (1 + e.phase[i] * 0.4);
         if (e.atk[i] <= 0) {
           e.atk[i] += atk.period;
-          volley(g, i, atk.volley ?? 1, atk.dmg * e.dmgMul[i] * SHOT_DMG, city, -1, -1);
+          volley(g, i, atk.volley ?? 1, atk.dmg * e.dmgMul[i] * SHOT_DMG * (g.threatLevel >= 4 ? 1.25 : 1), city, -1, -1);
         }
       }
     }

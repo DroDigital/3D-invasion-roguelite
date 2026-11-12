@@ -29,6 +29,8 @@ export class Build {
   readonly owned: UpgradeDef[] = [];
   /** Effects that are always on (commander perks). */
   readonly innate: Effect[] = [];
+  /** Bonuses from standing cities, rebuilt by Game.recompute. */
+  readonly perks: Effect[] = [];
   private stacks = new Map<string, number>();
   readonly rules = new Set<Rule>();
   readonly triggers: Record<TriggerOn, Trigger[]> = {
@@ -70,6 +72,7 @@ export class Build {
       else mul *= Math.pow(e.value, n);
     };
     for (const e of this.innate) apply(e, 1);
+    for (const e of this.perks) apply(e, 1);
     for (const u of this.owned) {
       const n = this.stacksOf(u.id);
       for (const e of u.effects) apply(e, n);

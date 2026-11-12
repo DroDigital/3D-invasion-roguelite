@@ -6,6 +6,12 @@ You command Earth's orbital defense. Aliens arrive in waves from every side; eve
 targets on its own. You build: pick upgrades on level-up, buy in the shop between waves, merge
 max-tier weapon pairs into evolutions, and fire one or two long-cooldown abilities at the right moment.
 
+A campaign is **30 waves in three sectors**, ending with the World-Eater; win to unlock harder
+**Threat Levels** (or keep going in endless mode). Between waves you pick the next wave's **operation**:
+a quiet patrol, or a riskier one that adds directives for a reward. During a wave, **right-click the globe**
+to drop a focus beacon and pull every weapon onto that area. Each city lends Earth a **perk** (research,
+industry, launch sites...) for as long as it stands.
+
 The aliens fight back. Every species has its own weapon (acid, lasers, plasma, homing missiles, void bolts)
 aimed at your cities, gunship packs hunt your satellites, swarms dive into the ground, and every destroyed
 ship falls and burns the planet's surface. From wave 10 the Outer Dark arrives: eldritch horrors that seize
@@ -33,6 +39,7 @@ npm run build
 | 1–5, R | Pick a level-up card, reroll |
 | Q / E (or the on-screen buttons) | Active abilities. Point and city abilities then take a click on the globe (or a city row) |
 | 1–6 (during a wave) | Use a held consumable; most then take a click on the globe or a city |
+| Right-click the globe | Focus beacon: every weapon engages aliens above that point first for 8 s |
 | Space / Tab | Pause / cycle game speed 1x-2x-3x (also the buttons top-right) |
 | F | Jump the camera to the most threatened city |
 | F3 | Toggle the FPS readout |

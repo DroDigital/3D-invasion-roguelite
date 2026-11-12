@@ -4,7 +4,7 @@ import { MAX_ENEMIES, ROLE_BOSS, ST_SIEGE } from './enemies';
 import type { Game } from './game';
 import { FX_BEAM, FX_BLAST, FX_CHAIN, FX_CRIT, FX_DAMAGE, FX_FIELD, FX_MUZZLE, FX_NOVA, FX_SHOT } from './game';
 import { PK_BOLT, PK_DRONE, PK_SHARD } from './projectiles';
-import { nearestEnemy, selectTargets } from './targeting';
+import { nearestEnemy, selectTargets, setTargetFocus } from './targeting';
 import { nearestEmitter, OwnedWeapon, updateEmitters } from './weapons';
 import { liveFraction } from './defense';
 
@@ -28,6 +28,7 @@ function rollCrit(g: Game, w: OwnedWeapon): boolean {
 
 function updateWeapons(g: Game, dt: number): void {
   const e = g.enemies;
+  setTargetFocus(g.focusT > 0, g.focus[0], g.focus[1], g.focus[2]);
   const ws = g.arsenal.weapons;
   for (let s = 0; s < ws.length; s++) {
     const w = ws[s];
