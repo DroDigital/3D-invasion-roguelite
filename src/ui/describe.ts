@@ -1,4 +1,4 @@
-import type { Effect, StatId, TagQuery, UpgradeDef, WeaponDef, WeaponTier } from '../data/types';
+import type { DefenseDef, Effect, StatId, TagQuery, UpgradeDef, WeaponDef, WeaponTier } from '../data/types';
 
 const STAT_NAME: Record<StatId, string> = {
   damage: 'damage', fireRate: 'fire rate', projectileSpeed: 'projectile speed', targets: 'targets per volley',
@@ -112,5 +112,13 @@ export function describeTierUp(w: WeaponDef, to: number): string[] {
   if (b.chain && a.chain && b.chain.jumps !== a.chain.jumps) more.push(`CHAIN ${a.chain.jumps} > ${b.chain.jumps}`);
   if (more.length) out.push(more.join('  //  '));
   out.push('New deployment model.');
+  return out;
+}
+
+/** Defense module card text: what it does, and this tier (or the change to it). */
+export function describeDefense(d: DefenseDef, tier: number, upgrade: boolean): string[] {
+  const out = upgrade ? [] : [d.text];
+  if (upgrade) out.push(`${d.tiers[tier - 1].text}  >`);
+  out.push(`TIER ${tier + 1}: ${d.tiers[tier].text}`);
   return out;
 }

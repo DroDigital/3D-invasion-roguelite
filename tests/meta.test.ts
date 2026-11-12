@@ -52,7 +52,7 @@ describe('meta progression', () => {
 
   it('commanders apply their perks and abilities load into slots', () => {
     const g = new Game({ seed: 'CMD', commander: 'okafor', abilities: ['global_emp', 'overclock'], abilitySlots: 1 });
-    expect(g.arsenal.slots).toBe(9);
+    expect(g.arsenal.slots).toBe(7);
     expect(g.abilities.map((a) => a.def.id)).toEqual(['global_emp']);
   });
 

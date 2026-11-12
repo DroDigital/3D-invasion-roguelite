@@ -10,7 +10,7 @@ export const PROGRESSION = {
   rerolls: 3,
   banishes: 2,
   /** Offer weight of a tier upgrade for an owned weapon. */
-  tierWeight: 70,
+  tierWeight: 120,
   baseCritMult: 2,
 } as const;
 

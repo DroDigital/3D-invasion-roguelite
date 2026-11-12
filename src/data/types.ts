@@ -5,7 +5,24 @@ export type Tag =
   | 'single-target' | 'multi-target' | 'economy' | 'defense' | 'evolved';
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
-export type AlienRole = 'invader' | 'destroyer' | 'abductor' | 'saboteur' | 'carrier' | 'boss';
+export type AlienRole = 'invader' | 'destroyer' | 'abductor' | 'saboteur' | 'carrier' | 'boss' | 'gunship' | 'horror' | 'tentacle';
+
+/** Alien weapons: what their shots look like and how they fly. */
+export type EnemyShotKind = 'plasma' | 'missile' | 'acid' | 'laser' | 'void';
+
+export interface AlienAttack {
+  dmg: number;
+  /** Seconds between volleys. */
+  period: number;
+  /** Shot speed (Earth radii per second); lasers are instant. */
+  speed: number;
+  /** Shots per volley. */
+  volley?: number;
+  /** Only fire when this close to the target. */
+  range?: number;
+  /** What it shoots at. Default: its target city. */
+  target?: 'city' | 'weapon';
+}
 export type DamageType = 'kinetic' | 'energy' | 'explosive' | 'gravity';
 export type TargetRule =
   | 'nearestToCity' | 'highestHp' | 'lowestHp' | 'abductorsFirst' | 'saboteursFirst'
@@ -207,6 +224,10 @@ export interface SpeciesDef {
   regen?: number;
   /** Periodically untargetable. */
   cloak?: { period: number; duration: number };
+  /** The look of this species' shots at cities. */
+  shot: EnemyShotKind;
+  /** Organic horrors: rendered as procedural creatures with tentacles instead of hulls. */
+  creature?: boolean;
   text: string;
   unlock?: string;
   minWave: number;
@@ -236,6 +257,12 @@ export interface AlienDef {
   minWave: number;
   /** Giant carrier that appears on a schedule rather than from the budget. */
   mothership?: boolean;
+  /** Ranged attack (shots at cities or weapon platforms). */
+  attack?: AlienAttack;
+  /** Decorative tentacles drawn on the creature body. */
+  tentacles?: number;
+  /** Great Old One: gets the boss bar and a planet-wide warning. */
+  elder?: boolean;
 }
 
 export type AlienTier = 'common' | 'elite' | 'champion' | 'mythic';
@@ -270,7 +297,77 @@ export interface WaveDef {
   species?: string[];
 }
 
-export type ShopKind = 'passive' | 'relic' | 'repair' | 'repairAll' | 'slot' | 'rerolls' | 'tierUp' | 'ability';
+/** Wave directives: mutators that change how a wave fights, stacking as the run goes on. */
+export interface DirectiveDef {
+  id: string;
+  name: string;
+  text: string;
+  minWave: number;
+  weight: number;
+  /** Health multiplier for every alien this wave. */
+  hpMul?: number;
+  armorAdd?: number;
+  speedMul?: number;
+  /** Alien weapons fire this much faster. */
+  fireRateMul?: number;
+  /** Extra gunships per wave. */
+  gunships?: number;
+  /** Extra horrors this wave. */
+  horrors?: number;
+  fodderMul?: number;
+  /** Every alien periodically cloaks. */
+  cloakAll?: boolean;
+  /** Fodder splits on death. */
+  splitFodder?: boolean;
+  /** Fodder dives into cities instead of besieging them. */
+  kamikaze?: boolean;
+  salvageMul?: number;
+}
+
+/** Planetary defense modules: a second loadout, slotted and tiered like weapons. */
+export interface DefenseTier {
+  text: string;
+  v: Record<string, number>;
+}
+
+export interface DefenseDef {
+  id: string;
+  name: string;
+  rarity: Rarity;
+  /** Icon glyph key (ui/icons.ts). */
+  icon: string;
+  color: [number, number, number];
+  text: string;
+  tiers: DefenseTier[];
+}
+
+/** One-shot tactical items bought with salvage, stacked and placed on the globe. */
+export type ConsumableAction =
+  | { kind: 'nuke'; radius: number; damage: number; collateral: number }
+  | { kind: 'turret'; duration: number; range: number; damage: number; period: number }
+  | { kind: 'mines'; count: number; damage: number; duration: number }
+  | { kind: 'decoy'; duration: number; radius: number }
+  | { kind: 'cryo'; radius: number; duration: number }
+  | { kind: 'well'; radius: number; duration: number; dps: number; pull: number }
+  | { kind: 'shield'; duration: number }
+  | { kind: 'squadron'; count: number }
+  | { kind: 'repair'; amount: number }
+  | { kind: 'singularity'; radius: number; duration: number; dps: number };
+
+export interface ConsumableDef {
+  id: string;
+  name: string;
+  rarity: Rarity;
+  price: number;
+  maxStack: number;
+  targeting: 'none' | 'point' | 'city';
+  action: ConsumableAction;
+  icon: string;
+  sfx: string;
+  text: string;
+}
+
+export type ShopKind = 'passive' | 'relic' | 'repair' | 'repairAll' | 'slot' | 'rerolls' | 'tierUp' | 'ability' | 'defenseSlot' | 'defenseRefit';
 export interface ShopItemDef {
   id: string;
   kind: ShopKind;

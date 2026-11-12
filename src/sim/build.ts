@@ -44,6 +44,8 @@ export class Build {
   abilityCooldown = 1;
   shopDiscount = 0;
   abductRecovery = 0;
+  /** Multiplier on defense module and consumable damage. */
+  defenseDamage = 1;
   choices: number = PROGRESSION.choices;
 
   stacksOf(id: string): number {
@@ -113,6 +115,13 @@ export class Build {
       s.slowDuration = t.slow?.duration ?? 0;
       s.shieldDamage = this.resolve('shieldDamage', 1, tags);
       s.bossDamage = this.resolve('bossDamage', 1, tags);
+      // Overdrive: endless late-game upgrades for maxed weapons, each a little weaker than the last.
+      if (w.overdrive > 0) {
+        const od = w.overdrive;
+        s.damage *= 1 + 0.12 * od - 0.002 * od * od;
+        s.dotDps *= 1 + 0.12 * od - 0.002 * od * od;
+        s.fireRate *= 1 + 0.04 * Math.min(od, 15);
+      }
     }
     this.xpGain = Math.max(0.1, this.global('xpGain', 1));
     this.salvageGain = Math.max(0.1, this.global('salvageGain', 1));

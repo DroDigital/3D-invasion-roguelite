@@ -8,6 +8,11 @@ import type { Game } from './game';
 import { rarityWeight } from './offers';
 import { isMaxTier, updateEmitters } from './weapons';
 import { CITY_MAX_HEALTH } from '../data/cities';
+import { DEFENSE_RULES } from '../data/defenses';
+import { ARMORY_RULES, CONSUMABLES } from '../data/consumables';
+import type { ConsumableDef } from '../data/types';
+import { defenseIsMax } from './defense';
+import { addItem } from './consumables';
 
 export interface ShopStock {
   def: ShopItemDef;
@@ -22,8 +27,16 @@ export interface ShopStock {
   sold: boolean;
 }
 
+export interface ArmoryStock {
+  def: ConsumableDef;
+  price: number;
+  bought: number;
+}
+
 export interface ShopState {
   stock: ShopStock[];
+  /** Consumables: never sell out, but each copy bought this visit costs more. */
+  armory: ArmoryStock[];
   rerolls: number;
   freeReroll: boolean;
 }
@@ -87,6 +100,20 @@ function resolve(g: Game, def: ShopItemDef, taken: Set<string>): ShopStock | nul
       taken.add(def.id);
       return { ...base, price: price(g, def.basePrice, def.rarity) };
     }
+    case 'defenseSlot': {
+      if (g.defense.slots >= DEFENSE_RULES.maxSlots || taken.has('defenseSlot')) return null;
+      taken.add('defenseSlot');
+      return { ...base, price: Math.round(price(g, def.basePrice, def.rarity) * Math.pow(1.5, g.defense.slots - DEFENSE_RULES.slots)) };
+    }
+    case 'defenseRefit': {
+      const mods = g.defense.modules.filter((m) => !defenseIsMax(m));
+      if (!mods.length || taken.has('defenseRefit')) return null;
+      taken.add('defenseRefit');
+      let low = mods[0];
+      for (const m of mods) if (m.tier < low.tier) low = m;
+      const slot = g.defense.modules.indexOf(low);
+      return { ...base, slot, name: `${low.def.name} Refit`, text: `${low.def.name}: tier ${low.tier + 1} > ${low.tier + 2}. ${low.def.tiers[low.tier + 1].text}.`, price: price(g, def.basePrice, def.rarity) };
+    }
     case 'rerolls':
       if (taken.has(def.id)) return null;
       taken.add(def.id);
@@ -113,8 +140,35 @@ function rollStock(g: Game): ShopStock[] {
   return out;
 }
 
+function rollArmory(g: Game): ArmoryStock[] {
+  const r = g.shopRng;
+  const pool = [...CONSUMABLES];
+  const out: ArmoryStock[] = [];
+  while (out.length < ARMORY_RULES.shelf && pool.length) {
+    const i = r.weighted(pool.map((c) => rarityWeight(g, c.rarity)));
+    out.push({ def: pool[i], price: 0, bought: 0 });
+    pool.splice(i, 1);
+  }
+  for (const a of out) a.price = armoryPrice(g, a);
+  return out;
+}
+
+export function armoryPrice(g: Game, a: ArmoryStock): number {
+  return Math.round(a.def.price * (1 + ARMORY_RULES.perWave * (g.wave - 1)) * (1 + ARMORY_RULES.repeatBuy * a.bought) * (1 - g.build.shopDiscount));
+}
+
+export function buyArmory(g: Game, i: number): boolean {
+  const a = g.shop?.armory[i];
+  if (!a || g.salvage < a.price) return false;
+  if (!addItem(g, a.def)) return false;
+  g.salvage -= a.price;
+  a.bought++;
+  a.price = armoryPrice(g, a);
+  return true;
+}
+
 export function openShop(g: Game): void {
-  g.shop = { stock: rollStock(g), rerolls: 0, freeReroll: g.build.rules.has('freeShopReroll') };
+  g.shop = { stock: rollStock(g), armory: rollArmory(g), rerolls: 0, freeReroll: g.build.rules.has('freeShopReroll') };
   g.phase = 'shop';
 }
 
@@ -132,6 +186,7 @@ export function rerollShop(g: Game): boolean {
   if (g.shop.freeReroll) g.shop.freeReroll = false;
   else g.shop.rerolls++;
   g.shop.stock = rollStock(g);
+  g.shop.armory = rollArmory(g);
   return true;
 }
 
@@ -171,6 +226,15 @@ export function buyShopItem(g: Game, i: number): boolean {
     case 'rerolls':
       g.rerolls += item.def.amount ?? 2;
       break;
+    case 'defenseSlot':
+      g.defense.slots = Math.min(DEFENSE_RULES.maxSlots, g.defense.slots + 1);
+      break;
+    case 'defenseRefit': {
+      const m = g.defense.modules[item.slot!];
+      if (!m || defenseIsMax(m)) return false;
+      m.tier++;
+      break;
+    }
   }
   g.salvage -= item.price;
   item.sold = true;

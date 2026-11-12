@@ -1,4 +1,5 @@
 import type { Rng } from '../core/rng';
+import { WAVE_RULES } from '../data/aliens';
 import type { TargetRule } from '../data/types';
 import type { CityState } from './cities';
 import { EnemyPool, MAX_ENEMIES, ROLE_ABDUCTOR, ROLE_BOSS, ROLE_SABOTEUR, ST_ATTACHED, ST_FLEE, ST_SIEGE } from './enemies';
@@ -7,6 +8,7 @@ const picked = new Uint8Array(MAX_ENEMIES);
 const density = new Float32Array(MAX_ENEMIES);
 const DENSITY_R2 = 0.25 * 0.25;
 const SAMPLE = 48;
+const ENGAGE2 = WAVE_RULES.engageRadius * WAVE_RULES.engageRadius;
 
 function distToCity(e: EnemyPool, c: CityState, i: number): number {
   if (e.state[i] === ST_SIEGE) return -1;
@@ -70,6 +72,8 @@ export function selectTargets(rule: TargetRule, k: number, e: EnemyPool, c: City
     let bestScore = Infinity;
     for (let i = 0; i < e.high; i++) {
       if (!e.alive[i] || picked[i] || e.cloaked[i] || e.pending[i] >= e.hp[i] + e.shield[i]) continue;
+      // Out past sensor range ships can't be engaged yet.
+      if (e.x[i] * e.x[i] + e.y[i] * e.y[i] + e.z[i] * e.z[i] > ENGAGE2) continue;
       const s = score(rule, e, c, i, rng);
       if (s < bestScore) {
         bestScore = s;

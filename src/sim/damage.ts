@@ -4,7 +4,9 @@ import { xpForLevel } from '../data/progression';
 import type { ActionDef, DamageType } from '../data/types';
 import { spawnAlien } from './aliens';
 import { matches, TriggerOn } from './build';
-import { ROLE_ABDUCTOR, ROLE_BOSS, ROLE_INVADER } from './enemies';
+import { ROLE_ABDUCTOR, ROLE_BOSS, ROLE_HORROR, ROLE_INVADER, ROLE_TENTACLE } from './enemies';
+import { WAVE_RULES } from '../data/aliens';
+import { spawnWreck } from './wrecks';
 import type { Game } from './game';
 import { FX_BLAST, FX_CITY_FALL, FX_CITY_HIT, FX_EXPLOSION, FX_HIT, FX_KILL, FX_SHIELD_HIT, FX_STRIKE } from './game';
 import { chainArc } from './combat';
@@ -74,24 +76,50 @@ export function killEnemy(g: Game, i: number, slot: number): void {
 
   g.kills++;
   if (w) w.kills++;
-  if (role === ROLE_BOSS) {
-    g.bossKills++;
-    g.addLog(`${def.name.toUpperCase()} DESTROYED`, 'good');
-    if (g.bossSlot === i) g.bossSlot = -1;
+  if (role === ROLE_BOSS || role === ROLE_HORROR) {
+    if (role === ROLE_BOSS || def.elder) g.bossKills++;
+    g.addLog(`${def.name.toUpperCase()} ${role === ROLE_HORROR ? 'BANISHED' : 'DESTROYED'}`, 'good');
+  }
+  if (g.bossSlot === i) g.bossSlot = -1;
+  if (role === ROLE_TENTACLE) {
+    const p = e.parent[i];
+    if (p >= 0 && e.alive[p] && e.gen[p] === e.parentGen[i] && e.cargo[p] > 0) e.cargo[p]--;
   }
   if (role === ROLE_ABDUCTOR && e.cargo[i] > 0) {
     g.peopleRescued += e.cargo[i];
     returnPeople(g, city, e.cargo[i]);
     e.cargo[i] = 0;
   }
-  const giant = role === ROLE_BOSS || ALIENS[e.def[i]].mothership;
+  const giant = role === ROLE_BOSS || role === ROLE_HORROR || ALIENS[e.def[i]].mothership;
+  const fodder = e.fodder[i] === 1;
   g.emitFx(FX_EXPLOSION, x, y, z, 0, 0, 0, e.scale[i] * (giant ? 4 : 1));
-  g.emitFx(FX_KILL, x, y, z, role, 0, 0, e.fodder[i] ? 0 : giant ? 8 : tier + 1);
+  g.emitFx(FX_KILL, x, y, z, role, 0, 0, fodder ? 0 : giant ? 8 : tier + 1);
+  // Every ship leaves wreckage that falls to Earth; giants break into burning chunks.
+  if (role !== ROLE_TENTACLE) {
+    const r = g.combatRng;
+    const sp = e.speed[i] * 0.6;
+    const chunks = giant ? 5 + (ALIENS[e.def[i]].mothership ? 3 : 0) : fodder ? (r.next() < 0.35 ? 1 : 0) : 1;
+    for (let k = 0; k < chunks; k++) {
+      const kick = giant ? 0.18 : 0.07;
+      const size = giant ? e.scale[i] * r.range(0.18, 0.32) : e.scale[i] * 0.55;
+      const dmg = fodder ? 0 : giant ? 3 + e.scale[i] * 8 : e.scale[i] * 10;
+      spawnWreck(g, x, y, z, e.dx[i] * sp + r.range(-kick, kick), e.dy[i] * sp + r.range(-kick, kick), e.dz[i] * sp + r.range(-kick, kick), size, dmg, e.species[i]);
+    }
+  }
+  const splits = fodder && g.dir.splitFodder && e.rewardMul[i] > 0.02;
   e.kill(i);
 
-  let salvage = def.salvage * e.rewardMul[i];
+  // Salvage dries up as the war drags on: per-kill value falls with the wave, swarms are
+  // nearly worthless, and each wave's kill income has diminishing returns.
+  let salvage = def.salvage * (fodder ? WAVE_RULES.fodderSalvage : e.rewardMul[i]) / (1 + 0.07 * Math.max(0, g.wave - 1));
   if (tier >= 1 && g.build.rules.has('bountyHunter')) salvage *= 3;
-  gainSalvage(g, salvage, true);
+  gainKillSalvage(g, salvage * g.dir.salvageMul);
+  if (splits) {
+    for (let k = 0; k < 2; k++) {
+      const j = spawnAlien(g, e.def[i], 0, x + g.combatRng.range(-0.04, 0.04), y + g.combatRng.range(-0.04, 0.04), z + g.combatRng.range(-0.04, 0.04), city, g.combatRng, { hpMul: 0.25, noMods: true, quiet: true, fodder: true });
+      if (j >= 0) e.rewardMul[j] = 0.01;
+    }
+  }
 
   if (mods & MOD_EXPLODE.bit) {
     g.emitFx(FX_BLAST, x, y, z, 0, 0, 0, MOD_EXPLODE.value);
@@ -112,6 +140,17 @@ export function killEnemy(g: Game, i: number, slot: number): void {
   }
   runTriggers(g, 'kill', slot, x, y, z, city);
   gainXp(g, def.xp * e.rewardMul[i]);
+}
+
+/** Kill income: logarithmic per wave, so a flood of kills can't bankroll the whole shop. */
+export function gainKillSalvage(g: Game, amount: number): void {
+  const raw = amount * g.build.salvageGain;
+  const C = 22 + 3 * g.wave;
+  const before = C * Math.log1p(g.waveSalvageRaw / C);
+  g.waveSalvageRaw += raw;
+  const v = C * Math.log1p(g.waveSalvageRaw / C) - before;
+  g.salvage += v;
+  g.salvageEarned += v;
 }
 
 export function gainSalvage(g: Game, amount: number, scaled: boolean): void {
@@ -166,17 +205,26 @@ export function nearestLivingCity(g: Game, x: number, y: number, z: number): num
 }
 
 /** Damage a city's defences; new lows cost population. `discrete` marks single hits (triggers, fx). */
-export function damageCity(g: Game, city: number, amount: number, discrete: boolean): void {
+/** City damage sources, for the run summary and balance tools. */
+export const DMG_SIEGE = 0;
+export const DMG_DIVE = 1;
+export const DMG_SHOT = 2;
+export const DMG_WRECK = 3;
+export const DMG_TENTACLE = 4;
+export const DMG_OTHER = 5;
+
+export function damageCity(g: Game, city: number, amount: number, discrete: boolean, src = DMG_OTHER): void {
   const c = g.cities;
   if (c.health[city] <= 0) return;
   if (g.cityShield[city] > 0) return;
-  const dmg = amount * (1 - g.build.cityArmor) * g.build.cityDamageTaken;
+  const dmg = amount * (1 - g.build.cityArmor) * (1 - g.defense.cityReduce) * g.build.cityDamageTaken;
   const d = Math.min(dmg, c.health[city]);
   c.health[city] -= d;
+  g.cityDamage[src] += d;
   if (c.health[city] < g.lowWater[city]) {
     const lost = g.lowWater[city] - c.health[city];
     g.lowWater[city] = c.health[city];
-    losePeople(g, city, (c.maxPopulation[city] * lost) / CITY_MAX_HEALTH);
+    losePeople(g, city, ((c.maxPopulation[city] * lost) / CITY_MAX_HEALTH) * (1 - g.defense.popReduce));
   }
   const k = city * 3;
   if (discrete) {

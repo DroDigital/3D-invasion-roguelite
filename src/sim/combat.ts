@@ -6,6 +6,7 @@ import { FX_BEAM, FX_BLAST, FX_CHAIN, FX_CRIT, FX_DAMAGE, FX_FIELD, FX_MUZZLE, F
 import { PK_BOLT, PK_DRONE, PK_SHARD } from './projectiles';
 import { nearestEnemy, selectTargets } from './targeting';
 import { nearestEmitter, OwnedWeapon, updateEmitters } from './weapons';
+import { liveFraction } from './defense';
 
 const MIN_ALTITUDE = 1.03;
 const HIT_RADIUS = 0.035;
@@ -32,7 +33,10 @@ function updateWeapons(g: Game, dt: number): void {
     const w = ws[s];
     const st = w.stats;
     updateEmitters(w, dt);
-    const rate = st.fireRate * (g.overclockT > 0 ? g.overclockMul : 1) * Math.max(0.1, 1 - w.jam);
+    // Destroyed emitters take their share of the weapon's fire with them.
+    const live = liveFraction(w);
+    if (live <= 0) continue;
+    const rate = st.fireRate * live * (g.overclockT > 0 ? g.overclockMul : 1) * Math.max(0.1, 1 - w.jam);
     w.cooldown -= dt;
     if (w.cooldown > 0) continue;
     if (e.count === 0) {

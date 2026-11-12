@@ -5,6 +5,7 @@ import { spawnAlien } from './aliens';
 import { gainSalvage, runTriggers } from './damage';
 import type { Game } from './game';
 import { SHOP_RULES } from '../data/shop';
+import { rollDirectives } from './directives';
 
 /** Budget cost multiplier of each rarity tier. */
 const TIER_COST = [1, 2.2, 4.5, 10];
@@ -43,8 +44,8 @@ export function planWave(g: Game, r: Rng): void {
   }
 
   // Swarm fodder: big clusters of weak invaders from every side. Cheap kills, lots of them.
-  let fodder = budget * WAVE_RULES.fodderShare;
-  budget -= fodder;
+  let fodder = budget * WAVE_RULES.fodderShare * g.dir.fodderMul;
+  budget -= fodder / g.dir.fodderMul;
   // Hordes swell faster than the line: by the late game the sky is thick with swarms.
   fodder *= 1 + Math.max(0, wave - WAVE_RULES.fodderSwellFrom) / WAVE_RULES.fodderSwell;
   while (fodder > 0) {
@@ -67,7 +68,29 @@ export function planWave(g: Game, r: Rng): void {
     }
   }
 
-  const roles = (Object.keys(weights) as AlienRole[]).filter((role) => role !== 'boss');
+  // Gunship packs hunt the arsenal; more of them as the war goes on.
+  const gunships = (wave >= WAVE_RULES.horrorFrom - 1 ? Math.floor(wave * WAVE_RULES.gunshipsPerWave) : 0) + g.dir.gunships;
+  for (let k = 0; k < gunships; k += 4) {
+    const sp = r.pick(species);
+    const idx = alienFor(sp, 'gunship');
+    if (idx < 0) continue;
+    for (let j = 0; j < Math.min(4, gunships - k); j++) queue.push({ def: idx, tier: r.weighted(tw), cluster });
+    cluster++;
+  }
+
+  // Horrors from the Outer Dark: scheduled mini-bosses, more of them late.
+  let horrors = g.dir.horrors;
+  if (wave >= WAVE_RULES.horrorFrom && (wave - WAVE_RULES.horrorFrom) % WAVE_RULES.horrorEvery === 0) horrors += 1 + Math.floor((wave - WAVE_RULES.horrorFrom) / 12);
+  if (wave > 30 && !boss) horrors += 1;
+  const pool = ALIENS.map((a, i) => ({ a, i })).filter(({ a }) => a.role === 'horror' && !a.elder && a.minWave <= wave);
+  for (let k = 0; k < horrors && pool.length; k++) queue.push({ def: r.pick(pool).i, tier: 0, cluster: cluster++ });
+  // Great Old Ones wake on late boss waves.
+  if (boss && wave >= WAVE_RULES.elderFrom) {
+    const elder = ALIENS.findIndex((a) => a.elder);
+    if (elder >= 0) queue.push({ def: elder, tier: 0, cluster: cluster++ });
+  }
+
+  const roles = (Object.keys(weights) as AlienRole[]).filter((role) => role !== 'boss' && alienFor(species[0], role) >= 0);
   let guard = 0;
   while (budget > 0.5 && guard++ < 400) {
     const sp = debut && r.chance(0.6) ? debut.id : r.pick(species);
@@ -75,7 +98,9 @@ export function planWave(g: Game, r: Rng): void {
     const size = Math.max(1, Math.round((WAVE_RULES.clusterMin + r.int(WAVE_RULES.clusterMax - WAVE_RULES.clusterMin + 1)) * spDef.clusterMul));
     for (let k = 0; k < size && budget > 0.5; k++) {
       const avail = roles.filter((role) => {
-        const a = ALIENS[alienFor(sp, role)];
+        const ai = alienFor(sp, role);
+        if (ai < 0) return false;
+        const a = ALIENS[ai];
         return a.minWave <= wave && a.threat <= budget;
       });
       const role = avail.length ? avail[r.weighted(avail.map((x) => weights[x] ?? 0))] : 'invader';
@@ -100,7 +125,7 @@ export function planWave(g: Game, r: Rng): void {
     [groups[k], groups[j]] = [groups[j], groups[k]];
   }
   // Bosses always lead.
-  const lead = (q: Game['spawnQueue']): number => (ALIENS[q[0].def].role === 'boss' ? 2 : ALIENS[q[0].def].mothership ? 1 : 0);
+  const lead = (q: Game['spawnQueue']): number => (ALIENS[q[0].def].role === 'boss' || ALIENS[q[0].def].elder ? 2 : ALIENS[q[0].def].mothership || ALIENS[q[0].def].role === 'horror' ? 1 : 0);
   groups.sort((a, b) => lead(b) - lead(a));
   g.spawnQueue = groups.flat();
   const duration = Math.min(34, WAVE_RULES.duration + wave * 0.5);
@@ -147,12 +172,14 @@ function spawnNext(g: Game): void {
   if (item.cluster !== g.clusterId) {
     g.clusterId = item.cluster;
     newDirection(g, r);
+    g.clusterRad = r.range(WAVE_RULES.spawnRadius, WAVE_RULES.spawnRadiusMax);
   }
   const d = g.clusterDir;
   let x = d[0] + r.range(-0.16, 0.16);
   let y = d[1] + r.range(-0.16, 0.16);
   let z = d[2] + r.range(-0.16, 0.16);
-  const rad = (WAVE_RULES.spawnRadius + r.range(-0.3, 0.5)) / Math.hypot(x, y, z);
+  // Big ships and their swarms warp in out in deep space; the battlefield is far bigger than the orbit.
+  const rad = (g.clusterRad + r.range(-0.25, 0.25)) / Math.hypot(x, y, z);
   x *= rad;
   y *= rad;
   z *= rad;
@@ -163,6 +190,9 @@ function spawnNext(g: Game): void {
 
 export function startWave(g: Game): void {
   g.wave++;
+  g.waveSalvageRaw = 0;
+  g.bonusAllies = 0;
+  rollDirectives(g);
   planWave(g, g.waveRng);
   g.phase = 'spawning';
   g.addLog(`WAVE ${g.wave} INBOUND`, g.wave % WAVE_RULES.bossEvery === 0 ? 'boss' : 'info');
@@ -183,7 +213,7 @@ export function updateWaves(g: Game, dt: number): void {
     }
     if (g.spawnQueue.length === 0) g.phase = 'clearing';
   } else if (g.phase === 'clearing' && g.enemies.count === 0) {
-    gainSalvage(g, SHOP_RULES.clearBonus + SHOP_RULES.clearPerWave * g.wave, true);
+    gainSalvage(g, Math.min(SHOP_RULES.clearMax, SHOP_RULES.clearBonus + SHOP_RULES.clearPerWave * g.wave), true);
     g.addLog(`WAVE ${g.wave} CLEARED`, 'good');
     g.onWaveCleared();
   }

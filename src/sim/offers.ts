@@ -6,12 +6,18 @@ import { UNLOCKS } from '../data/meta';
 import type { Game } from './game';
 import { FX_EVOLVE } from './game';
 import { isMaxTier, updateEmitters } from './weapons';
+import { DEFENSE_RULES, DEFENSES } from '../data/defenses';
+import type { DefenseDef } from '../data/types';
+import { defenseIsMax, resetEmitters } from './defense';
 
 export type Offer =
   | { kind: 'weapon'; key: string; weapon: WeaponDef }
   | { kind: 'tier'; key: string; weapon: WeaponDef; slot: number; toTier: number }
   | { kind: 'passive'; key: string; upgrade: UpgradeDef; stacks: number }
-  | { kind: 'evolve'; key: string; evo: EvolutionDef; result: WeaponDef; a: number; b: number };
+  | { kind: 'evolve'; key: string; evo: EvolutionDef; result: WeaponDef; a: number; b: number }
+  | { kind: 'overdrive'; key: string; weapon: WeaponDef; slot: number; level: number }
+  | { kind: 'defense'; key: string; defense: DefenseDef }
+  | { kind: 'defenseTier'; key: string; defense: DefenseDef; slot: number; toTier: number };
 
 interface Candidate {
   offer: Offer;
@@ -53,6 +59,15 @@ function candidates(g: Game, exclude: readonly string[]): Candidate[] {
   }
   a.weapons.forEach((w, slot) => {
     if (!isMaxTier(w)) push({ kind: 'tier', key: `t:${w.def.id}`, weapon: w.def, slot, toTier: w.tier + 1 }, PROGRESSION.tierWeight);
+    // Maxed weapons can be overdriven forever, each step a little weaker.
+    else push({ kind: 'overdrive', key: `o:${w.def.id}`, weapon: w.def, slot, level: w.overdrive + 1 }, 22 / (1 + w.overdrive * 0.15));
+  });
+  const d = g.defense;
+  if (d.modules.length < d.slots) {
+    for (const def of DEFENSES) if (!d.owns(def.id)) push({ kind: 'defense', key: `d:${def.id}`, defense: def }, rarityWeight(g, def.rarity) * DEFENSE_RULES.newWeight);
+  }
+  d.modules.forEach((m, slot) => {
+    if (!defenseIsMax(m)) push({ kind: 'defenseTier', key: `dt:${m.def.id}`, defense: m.def, slot, toTier: m.tier + 1 }, DEFENSE_RULES.tierWeight);
   });
   for (const p of PASSIVES) {
     const stacks = g.build.stacksOf(p.id);
@@ -69,6 +84,11 @@ export function rollOffers(g: Game, n: number, exclude: readonly string[] = []):
     const i = g.offerRng.weighted(pool.map((c) => c.weight));
     out.push(pool[i].offer);
     pool.splice(i, 1);
+  }
+  // Until the first defense module is installed, every level-up from level 3 shows one.
+  if (g.defense.modules.length === 0 && g.level >= DEFENSE_RULES.firstFromLevel && out.length > 1 && !out.some((o) => o.kind === 'defense')) {
+    const defs = pool.filter((c) => c.offer.kind === 'defense');
+    if (defs.length) out[out.length - 1] = defs[g.offerRng.int(defs.length)].offer;
   }
   return out;
 }
@@ -109,6 +129,9 @@ export function applyOffer(g: Game, i: number): void {
     w.tier = o.toTier;
     updateEmitters(w, 0);
   } else if (o.kind === 'passive') g.build.add(o.upgrade);
+  else if (o.kind === 'overdrive') a.weapons[o.slot].overdrive++;
+  else if (o.kind === 'defense') g.defense.add(o.defense);
+  else if (o.kind === 'defenseTier') g.defense.modules[o.slot].tier = o.toTier;
   else evolve(g, o.a, o.b, o.result);
   g.recompute();
   g.offer = null;
@@ -130,6 +153,7 @@ export function evolve(g: Game, a: number, b: number, result: WeaponDef): void {
   g.retired.add(ar.weapons[a].def.id);
   g.retired.add(ar.weapons[b].def.id);
   const keep = ar.replace(a, result);
+  resetEmitters(keep);
   keep.damageDealt = ar.weapons[a].damageDealt;
   ar.remove(b);
   // Slots after b shifted down: fix references held by saboteurs, projectiles and fields.
@@ -159,7 +183,7 @@ export function rerollOffers(g: Game): void {
 /** Remove an option from the pool for the rest of the run and replace its card. */
 export function banishOffer(g: Game, i: number): void {
   const o = g.offer?.[i];
-  if (!o || g.offerKind !== 'levelup' || g.banishes <= 0 || o.kind === 'tier' || o.kind === 'evolve') return;
+  if (!o || g.offerKind !== 'levelup' || g.banishes <= 0 || o.kind === 'tier' || o.kind === 'evolve' || o.kind === 'overdrive' || o.kind === 'defenseTier') return;
   g.banishes--;
   g.banished.add(o.key);
   const keep = g.offer!.filter((_, j) => j !== i).map((x) => x.key);
