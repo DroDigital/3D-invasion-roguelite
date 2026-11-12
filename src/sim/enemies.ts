@@ -1,4 +1,4 @@
-export const MAX_ENEMIES = 700;
+export const MAX_ENEMIES = 3000;
 
 export const ST_APPROACH = 0;
 /** Invader landed and besieging. */
@@ -72,6 +72,8 @@ export class EnemyPool {
   readonly mark = new Float32Array(MAX_ENEMIES);
   readonly markT = new Float32Array(MAX_ENEMIES);
   readonly cloaked = new Uint8Array(MAX_ENEMIES);
+  /** Swarm fodder (cheap kills, rendered with a low-poly mesh). */
+  readonly fodder = new Uint8Array(MAX_ENEMIES);
   /** Per-enemy random phase for movement wobble and cloak cycles. */
   readonly seed = new Float32Array(MAX_ENEMIES);
   count = 0;
@@ -99,6 +101,7 @@ export class EnemyPool {
     this.dotW[i] = -1;
     this.mark[i] = this.markT[i] = 0;
     this.cloaked[i] = 0;
+    this.fodder[i] = 0;
     this.count++;
     return i;
   }

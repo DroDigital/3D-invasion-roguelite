@@ -127,6 +127,53 @@ for (const [name, budget] of Object.entries(HULLS)) {
   console.log(`hull ${name.padEnd(12)} ${r.tris} -> ${r.after} tris, ${r.bytes} B`);
 }
 
+/** Kenney craft used for the allied defence squadrons, normalised like the hulls (length 1, nose +Z). */
+const ALLY_CRAFT = ['craft_speederA', 'craft_speederD', 'craft_racer'];
+
+async function bakeKenney(name) {
+  const src = await new NodeIO().read(path.join(kitDir, 'Models', 'GLTF format', `${name}.glb`));
+  const positions = [];
+  const colors = [];
+  for (const node of src.getRoot().listNodes()) {
+    const mesh = node.getMesh();
+    if (!mesh) continue;
+    const m = node.getWorldMatrix();
+    for (const prim of mesh.listPrimitives()) {
+      const base = prim.getMaterial()?.getBaseColorFactor() ?? [1, 1, 1, 1];
+      const pa = prim.getAttribute('POSITION');
+      const ia = prim.getIndices();
+      const n = ia ? ia.getCount() : pa.getCount();
+      const tmp = [0, 0, 0];
+      for (let i = 0; i < n; i++) {
+        pa.getElement(ia ? ia.getScalar(i) : i, tmp);
+        positions.push(
+          m[0] * tmp[0] + m[4] * tmp[1] + m[8] * tmp[2] + m[12],
+          m[1] * tmp[0] + m[5] * tmp[1] + m[9] * tmp[2] + m[13],
+          m[2] * tmp[0] + m[6] * tmp[1] + m[10] * tmp[2] + m[14],
+        );
+        colors.push(base[0], base[1], base[2]);
+      }
+    }
+  }
+  return { positions, colors };
+}
+
+for (const name of ALLY_CRAFT) {
+  const { positions, colors } = await bakeKenney(name);
+  let min = [Infinity, Infinity, Infinity];
+  let max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < positions.length; i += 3) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], positions[i + k]); max[k] = Math.max(max[k], positions[i + k]); }
+  const len = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]) || 1;
+  for (let i = 0; i < positions.length; i += 3) {
+    // Kenney craft face -Z; flip to +Z (mirror x to keep winding).
+    positions[i] = -(positions[i] - (min[0] + max[0]) / 2) / len;
+    positions[i + 1] = (positions[i + 1] - (min[1] + max[1]) / 2) / len;
+    positions[i + 2] = -(positions[i + 2] - (min[2] + max[2]) / 2) / len;
+  }
+  const r = await finish(writeMesh(name, positions, colors, null, 600), path.join(OUT, 'allies', `${name}.glb`));
+  console.log(`ally ${name.padEnd(24)} ${r.tris} -> ${r.after} tris, ${r.bytes} B`);
+}
+
 // ---- kit parts ----
 for (const name of KIT_PARTS) {
   const src = await new NodeIO().read(path.join(kitDir, 'Models', 'GLTF format', `${name}.glb`));

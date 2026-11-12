@@ -141,6 +141,18 @@
   "kit:weapon_rifle": {
    "path": "models/kit/weapon_rifle.glb",
    "preload": true
+  },
+  "ally:craft_racer": {
+   "path": "models/allies/craft_racer.glb",
+   "preload": true
+  },
+  "ally:craft_speederA": {
+   "path": "models/allies/craft_speederA.glb",
+   "preload": true
+  },
+  "ally:craft_speederD": {
+   "path": "models/allies/craft_speederD.glb",
+   "preload": true
   }
  },
  "audio": {

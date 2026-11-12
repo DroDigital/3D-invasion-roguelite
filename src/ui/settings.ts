@@ -7,7 +7,9 @@ const TOGGLES: [keyof Settings, string][] = [
   ['vertexSnap', 'VERTEX SNAPPING'],
   ['affine', 'AFFINE TEXTURE WARP'],
   ['bloom', 'BLOOM'],
-  ['shake', 'SCREEN SHAKE'],
+  ['shake', 'SCREEN SHAKE + IMPACT PULSE'],
+  ['damageNumbers', 'DAMAGE NUMBERS'],
+  ['showFps', 'SHOW FPS (F3)'],
 ];
 const SLIDERS: [keyof Settings, string][] = [
   ['master', 'MASTER VOLUME'],

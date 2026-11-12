@@ -9,7 +9,7 @@ import { updateEmitters } from './sim/weapons';
 export function devTools(g: Game): Record<string, unknown> {
   return {
     /** Spawn `n` aliens of a type near a world direction (defaults: random). */
-    spawn(id: string, tier = 0, n = 1, dir?: [number, number, number], dist = 2.2) {
+    spawn(id: string, tier = 0, n = 1, dir?: [number, number, number], dist = 2.2, fodder = false) {
       const r = g.waveRng;
       for (let k = 0; k < n; k++) {
         const d = dir ?? [r.range(-1, 1), r.range(-1, 1), r.range(-1, 1)];
@@ -18,7 +18,7 @@ export function devTools(g: Game): Record<string, unknown> {
         const x = (d[0] / l + r.range(-j, j)) * dist;
         const y = (d[1] / l + r.range(-j, j)) * dist;
         const z = (d[2] / l + r.range(-j, j)) * dist;
-        spawnAlien(g, alienIndex(id), tier, x, y, z, r.int(g.cities.count), r);
+        spawnAlien(g, alienIndex(id), tier, x, y, z, r.int(g.cities.count), r, fodder ? { hpMul: 0.5, noMods: true, fodder: true } : {});
       }
     },
     setWave(n: number) {
@@ -38,6 +38,11 @@ export function devTools(g: Game): Record<string, unknown> {
         g.offer = o;
         g.offerKind = 'levelup';
       }
+    },
+    /** Keep a staged battle running: allies launch and the wave never ends on its own. */
+    battle() {
+      g.phase = 'clearing';
+      g.spawnQueue.length = 0;
     },
     holdWaves() {
       g.phaseTimer = 1e9;

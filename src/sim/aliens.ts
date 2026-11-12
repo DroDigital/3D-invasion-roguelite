@@ -18,6 +18,8 @@ const MOD_BITS = Object.fromEntries(MODIFIERS.map((m) => [m.id, m]));
 export interface SpawnOpts {
   hpMul?: number;
   noMods?: boolean;
+  /** Swarm fodder: reduced rewards. */
+  fodder?: boolean;
   /** No warp-in effect (children of splitting aliens, carrier spawns). */
   quiet?: boolean;
 }
@@ -51,21 +53,24 @@ export function spawnAlien(g: Game, defIdx: number, tierIdx: number, x: number, 
     }
   }
 
-  const maxHp = def.hp * tier.hpMul * waveHpMul(g, boss) * (opts.hpMul ?? 1);
+  const growth = opts.fodder ? Math.pow(WAVE_RULES.fodderHpGrowth, Math.max(0, g.wave - 1)) : waveHpMul(g, boss);
+  const maxHp = def.hp * tier.hpMul * growth * (opts.hpMul ?? 1);
   e.def[i] = defIdx;
   e.species[i] = speciesIndex.get(def.species)!;
   e.role[i] = role;
   e.tier[i] = tierIdx;
   e.mods[i] = mods;
   e.hp[i] = e.maxHp[i] = maxHp;
-  let shield = (sp.shield ?? 0) * maxHp;
+  // Swarm fodder is cannon fodder: no species shields, armour or regeneration.
+  const lean = opts.fodder === true;
+  let shield = lean ? 0 : (sp.shield ?? 0) * maxHp;
   if (mods & MOD_BITS.shielded.bit) shield += MOD_BITS.shielded.value * maxHp;
   e.shield[i] = e.maxShield[i] = shield;
-  e.armor[i] = (sp.armor ?? 0) * (1 + (g.wave - 1) * 0.08) * (boss ? 2 : 1);
-  e.regen[i] = ((sp.regen ?? 0) + (mods & MOD_BITS.regenerating.bit ? MOD_BITS.regenerating.value : 0)) * maxHp;
+  e.armor[i] = lean ? 0 : (sp.armor ?? 0) * (1 + (g.wave - 1) * 0.08) * (boss ? 2 : 1);
+  e.regen[i] = lean ? 0 : ((sp.regen ?? 0) + (mods & MOD_BITS.regenerating.bit ? MOD_BITS.regenerating.value : 0)) * maxHp;
   e.speed[i] = def.speed * tier.speedMul * (mods & MOD_BITS.fast.bit ? MOD_BITS.fast.value : 1);
-  e.dmgMul[i] = tier.dmgMul * (1 + (g.wave - 1) * 0.05);
-  e.rewardMul[i] = tier.rewardMul * (opts.hpMul !== undefined ? 0.3 : 1);
+  e.dmgMul[i] = tier.dmgMul * (1 + (g.wave - 1) * 0.05) * Math.pow(1.06, Math.max(0, g.wave - WAVE_RULES.overtimeWave));
+  e.rewardMul[i] = tier.rewardMul * (opts.hpMul !== undefined ? (opts.fodder ? WAVE_RULES.fodderReward : 0.3) : 1);
   e.scale[i] = def.scale * tier.scale;
   e.x[i] = x;
   e.y[i] = y;
@@ -79,6 +84,8 @@ export function spawnAlien(g: Game, defIdx: number, tierIdx: number, x: number, 
   e.mtimer[i] = rng.range(1, 3);
   e.timer[i] = role === ROLE_CARRIER || role === ROLE_BOSS ? def.roleParams.spawnPeriod * 0.5 : 0;
   if (role === ROLE_SABOTEUR) pickSabotageTarget(g, i, rng);
+  e.fodder[i] = opts.fodder ? 1 : 0;
+  if (def.mothership) g.addLog(`MOTHERSHIP INBOUND: ${def.name.toUpperCase()}`, 'boss');
   if (boss) {
     g.bossSlot = i;
     g.addLog(`WARNING: ${def.name.toUpperCase()} INBOUND`, 'boss');
@@ -286,7 +293,7 @@ export function updateAliens(g: Game, dt: number, realDt: number): void {
           e.x[i] += e.dx[i] * out;
           e.y[i] += e.dy[i] * out;
           e.z[i] += e.dz[i] * out;
-          if (r > WAVE_RULES.spawnRadius) {
+          if (r > WAVE_RULES.escapeRadius) {
             const back = e.cargo[i] * g.build.abductRecovery;
             g.peopleTaken += e.cargo[i] - back;
             if (back > 0) returnPeople(g, city, back);
@@ -346,13 +353,13 @@ export function updateAliens(g: Game, dt: number, realDt: number): void {
           e.x[i] += e.dx[i] * out;
           e.y[i] += e.dy[i] * out;
           e.z[i] += e.dz[i] * out;
-          if (r > WAVE_RULES.spawnRadius) {
+          if (r > WAVE_RULES.escapeRadius) {
             g.emitFx(FX_WARP, e.x[i], e.y[i], e.z[i], 0, 0, 0, e.scale[i]);
             e.kill(i);
           }
         } else if (e.state[i] === ST_HOVER) {
           g.threat[city]++;
-          if (spawnBrood(g, i, dt) && ++e.cargo[i] >= CARRIER_BROODS) e.state[i] = ST_FLEE;
+          if (spawnBrood(g, i, dt) && ++e.cargo[i] >= (ALIENS[e.def[i]].roleParams.broods ?? CARRIER_BROODS)) e.state[i] = ST_FLEE;
         } else if (moveTo(g, i, cx * rp.hoverAlt, cy * rp.hoverAlt, cz * rp.hoverAlt, spd, dt, 0.01, true)) {
           e.state[i] = ST_HOVER;
         }
@@ -372,9 +379,10 @@ function spawnBrood(g: Game, i: number, dt: number): boolean {
   e.timer[i] -= rp.spawnPeriod;
   const species = SPECIES[e.species[i]].id;
   const child = ALIENS.findIndex((a) => a.species === species && a.role === 'invader');
+  const giant = ALIENS[e.def[i]].mothership === true;
   const r = g.combatRng;
   for (let k = 0; k < rp.spawnCount; k++) {
-    const j = spawnAlien(g, child, 0, e.x[i] + r.range(-0.06, 0.06), e.y[i] + r.range(-0.06, 0.06), e.z[i] + r.range(-0.06, 0.06), e.city[i], r, { hpMul: 0.5, noMods: true, quiet: true });
+    const j = spawnAlien(g, child, 0, e.x[i] + r.range(-0.06, 0.06), e.y[i] + r.range(-0.06, 0.06), e.z[i] + r.range(-0.06, 0.06), e.city[i], r, { hpMul: 0.5, noMods: true, quiet: true, fodder: giant });
     if (j >= 0) {
       // Fan out to nearby cities rather than piling on one.
       const t = nearestLivingCity(g, e.x[j] + r.range(-0.5, 0.5), e.y[j] + r.range(-0.5, 0.5), e.z[j] + r.range(-0.5, 0.5));

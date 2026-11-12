@@ -2,7 +2,7 @@ import type { DamageType } from '../data/types';
 import { blast, damageEnemy, runTriggers } from './damage';
 import { MAX_ENEMIES, ROLE_BOSS, ST_SIEGE } from './enemies';
 import type { Game } from './game';
-import { FX_BEAM, FX_BLAST, FX_CHAIN, FX_CRIT, FX_FIELD, FX_MUZZLE, FX_NOVA, FX_SHOT } from './game';
+import { FX_BEAM, FX_BLAST, FX_CHAIN, FX_CRIT, FX_DAMAGE, FX_FIELD, FX_MUZZLE, FX_NOVA, FX_SHOT } from './game';
 import { PK_BOLT, PK_DRONE, PK_SHARD } from './projectiles';
 import { nearestEnemy, selectTargets } from './targeting';
 import { nearestEmitter, OwnedWeapon, updateEmitters } from './weapons';
@@ -10,7 +10,8 @@ import { nearestEmitter, OwnedWeapon, updateEmitters } from './weapons';
 const MIN_ALTITUDE = 1.03;
 const HIT_RADIUS = 0.035;
 const LINE_RADIUS = 0.05;
-const NOVA_MAX_R = 3.2;
+/** Pulses cover near-Earth space only, so they don't scale without limit against hordes. */
+const NOVA_MAX_R = 1.9;
 const chainHit = new Uint8Array(MAX_ENEMIES);
 
 export function updateCombat(g: Game, dt: number): void {
@@ -165,7 +166,8 @@ function impact(g: Game, s: number, i: number, dmg: number, crit: boolean, allow
   }
   if (st.stunChance > 0 && g.combatRng.next() < st.stunChance) e.stun[i] = Math.max(e.stun[i], st.stunDuration * (e.role[i] === ROLE_BOSS ? 0.3 : 1));
 
-  damageEnemy(g, i, total, type, s);
+  const dealt = damageEnemy(g, i, total, type, s);
+  if (dealt > 0) g.emitFx(FX_DAMAGE, x, y, z, dealt, 0, 0, crit ? 1 : 0);
   runTriggers(g, 'hit', s, x, y, z, e.alive[i] ? e.city[i] : -1);
   if (crit) runTriggers(g, 'crit', s, x, y, z, -1);
 

@@ -76,6 +76,32 @@ export const ALIENS: readonly AlienDef[] = SPECIES.flatMap((sp) =>
   }),
 );
 
+/** Giant motherships: carriers that launch endless swarms until destroyed. One per species. */
+const MOTHERSHIPS: Record<string, { name: string; model: string }> = {
+  insectoid: { name: 'Hive Ark', model: 'insurgent' },
+  crystal: { name: 'Cathedral Shard', model: 'imperial' },
+  greys: { name: 'Grand Saucer', model: 'pancake' },
+  hulk: { name: 'Leviathan Womb', model: 'executioner' },
+};
+(ALIENS as AlienDef[]).push(
+  ...SPECIES.map((sp): AlienDef => ({
+    id: `${sp.id}_mothership`,
+    name: MOTHERSHIPS[sp.id].name,
+    species: sp.id,
+    role: 'carrier',
+    mothership: true,
+    hp: Math.round(1400 * sp.hpMul),
+    speed: 0.07,
+    roleParams: { hoverAlt: 2.2, spawnPeriod: 2.2, spawnCount: 9, broods: 60 },
+    model: MOTHERSHIPS[sp.id].model,
+    scale: 0.5,
+    xp: 40,
+    salvage: 40,
+    threat: 0,
+    minWave: 8,
+  })),
+);
+
 const alienIdx = new Map(ALIENS.map((a, i) => [a.id, i]));
 export function alienIndex(id: string): number {
   const i = alienIdx.get(id);
@@ -101,32 +127,52 @@ export const MODIFIERS: readonly ModifierDef[] = [
 
 /** Hand-authored opening; later waves are generated from the seed (see sim/waves.ts). */
 export const WAVES: readonly WaveDef[] = [
-  { wave: 1, budget: 8, roleWeights: { invader: 1 } },
-  { wave: 2, budget: 12, roleWeights: { invader: 4, destroyer: 1 } },
-  { wave: 3, budget: 17, roleWeights: { invader: 4, destroyer: 1, abductor: 1.5 } },
-  { wave: 4, budget: 23, roleWeights: { invader: 4, destroyer: 1.5, abductor: 1.5, saboteur: 1 } },
-  { wave: 5, budget: 22, roleWeights: { invader: 4, destroyer: 1.5, abductor: 1.5, saboteur: 1 } },
-  { wave: 6, budget: 36, roleWeights: { invader: 4, destroyer: 2, abductor: 1.5, saboteur: 1, carrier: 0.6 } },
+  { wave: 1, budget: 16, roleWeights: { invader: 1 } },
+  { wave: 2, budget: 24, roleWeights: { invader: 4, destroyer: 1 } },
+  { wave: 3, budget: 34, roleWeights: { invader: 4, destroyer: 1, abductor: 1.5 } },
+  { wave: 4, budget: 46, roleWeights: { invader: 4, destroyer: 1.5, abductor: 1.5, saboteur: 1 } },
+  { wave: 5, budget: 44, roleWeights: { invader: 4, destroyer: 1.5, abductor: 1.5, saboteur: 1 } },
+  { wave: 6, budget: 72, roleWeights: { invader: 4, destroyer: 2, abductor: 1.5, saboteur: 1, carrier: 0.6 } },
 ];
 
 export const WAVE_RULES = {
-  firstDelay: 3,
+  firstDelay: 2,
   /** Countdown after leaving the shop. */
   intermission: 3,
   /** Budget for generated waves: base + linear * wave + quad * wave^2. */
-  budgetBase: 8,
-  budgetLinear: 1.5,
-  budgetQuad: 0.3,
+  budgetBase: 16,
+  budgetLinear: 3,
+  budgetQuad: 0.95,
   /** Seconds over which a wave's ships arrive. */
-  duration: 16,
-  clusterMin: 2,
-  clusterMax: 4,
-  spawnRadius: 6,
-  hpGrowthPerWave: 1.11,
+  duration: 18,
+  clusterMin: 3,
+  clusterMax: 6,
+  /** Share of every wave's budget spent on cheap swarm fodder (invaders at reduced health). */
+  fodderShare: 0.42,
+  fodderThreat: 0.12,
+  fodderHp: 0.5,
+  /** XP and salvage multiplier for fodder kills. */
+  fodderReward: 0.12,
+  /** Fodder health grows on its own gentler curve so hordes keep dying in droves late in a run. */
+  fodderHpGrowth: 1.075,
+  /** Fodder volume multiplier: 1 + max(0, wave - fodderSwellFrom) / fodderSwell. */
+  fodderSwell: 9,
+  fodderSwellFrom: 10,
+  /** Fodder arrives in big clusters spread over the globe. */
+  fodderClusterMin: 8,
+  fodderClusterMax: 18,
+  /** Warp-in distance from Earth's centre: close enough that arrivals happen on screen. */
+  spawnRadius: 3.1,
+  /** Abductors and spent carriers escape past this distance. */
+  escapeRadius: 5,
+  hpGrowthPerWave: 1.115,
   /** From this wave on, health grows by an extra factor per wave so every run ends eventually. */
-  overtimeWave: 28,
-  overtimeGrowth: 1.12,
+  overtimeWave: 24,
+  overtimeGrowth: 1.13,
   bossEvery: 5,
+  /** Motherships: first wave, then every Nth wave; more of them later. */
+  mothershipFrom: 8,
+  mothershipEvery: 3,
   /** Boss health multiplier per boss appearance (wave 5, 10, ...). */
   bossGrowth: 1.9,
   defaultRoleWeights: { invader: 4, destroyer: 2, abductor: 1.6, saboteur: 1.1, carrier: 0.8 } as Partial<Record<AlienRole, number>>,

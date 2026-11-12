@@ -3,6 +3,9 @@ import type { EvolutionDef, WeaponDef, WeaponTier } from './types';
 type Base = Omit<WeaponTier, 'model'>;
 type Per = Partial<Record<'damage' | 'fireRate' | 'targets' | 'emitters' | 'aoe' | 'pierce' | 'split' | 'projectileSpeed', number[]>>;
 
+/** Global arsenal scale: emitters, extra targets and fire rate on top of the per-weapon numbers. */
+export const ARSENAL = { emitterMul: 2, extraTargets: 1, rateMul: 1.2 };
+
 const DMG = [1, 1.45, 2.05, 2.85, 4];
 const RATE = [1, 1.1, 1.22, 1.36, 1.55];
 const TGT = [0, 0, 1, 1, 2];
@@ -18,9 +21,9 @@ function grow(id: string, b: Base, per: Per = {}, extra?: (t: number) => Partial
     const tier: WeaponTier = {
       ...b,
       damage: +(b.damage * (per.damage?.[t] ?? DMG[t])).toFixed(2),
-      fireRate: +(b.fireRate * (per.fireRate?.[t] ?? RATE[t])).toFixed(3),
-      targets: b.targets + (per.targets?.[t] ?? TGT[t]),
-      emitters: Math.min(16, b.emitters + (per.emitters?.[t] ?? EMIT[t])),
+      fireRate: +(b.fireRate * (per.fireRate?.[t] ?? RATE[t]) * ARSENAL.rateMul).toFixed(3),
+      targets: b.targets + (per.targets?.[t] ?? TGT[t]) + ARSENAL.extraTargets,
+      emitters: Math.min(32, (b.emitters + (per.emitters?.[t] ?? EMIT[t])) * ARSENAL.emitterMul),
       model: `${id}_${t + 1}`,
     };
     if (b.aoe !== undefined) tier.aoe = +(b.aoe * (per.aoe?.[t] ?? [1, 1.1, 1.2, 1.35, 1.5][t])).toFixed(3);
@@ -33,7 +36,9 @@ function grow(id: string, b: Base, per: Per = {}, extra?: (t: number) => Partial
   return out;
 }
 
-const one = (id: string, t: Base): WeaponTier[] => [{ ...t, model: `${id}_evo` }];
+const one = (id: string, t: Base): WeaponTier[] => [
+  { ...t, fireRate: t.fireRate * ARSENAL.rateMul, targets: t.targets + ARSENAL.extraTargets, emitters: Math.min(32, t.emitters * ARSENAL.emitterMul), model: `${id}_evo` },
+];
 
 export const WEAPONS: readonly WeaponDef[] = [
   // ---------------- kinetic ----------------

@@ -75,8 +75,8 @@ export function rollOffers(g: Game, n: number, exclude: readonly string[] = []):
 
 /** Opening choice: one starting weapon from three, drawn from the unlocked starting pool. */
 export function rollStartingWeapons(g: Game): Offer[] {
-  const ids = new Set(DEFAULT_START_WEAPONS);
-  for (const u of UNLOCKS) if (u.kind === 'startWeapon' && u.grants && g.unlocks.has(u.id)) ids.add(u.grants);
+  const ids = new Set(DEFAULT_START_WEAPONS.filter((id) => !g.arsenal.owns(id)));
+  for (const u of UNLOCKS) if (u.kind === 'startWeapon' && u.grants && g.unlocks.has(u.id) && !g.arsenal.owns(u.grants)) ids.add(u.grants);
   const pool = [...ids].map(weaponById);
   const out: Offer[] = [];
   while (out.length < PROGRESSION.choices && pool.length > 0) {
@@ -112,8 +112,15 @@ export function applyOffer(g: Game, i: number): void {
   else evolve(g, o.a, o.b, o.result);
   g.recompute();
   g.offer = null;
+  // Runs open with two starting weapons, picked one after the other.
+  if (g.offerKind === 'start' && g.arsenal.weapons.length < START_WEAPONS) {
+    g.offer = rollStartingWeapons(g);
+    return;
+  }
   g.queueLevelUps();
 }
+
+export const START_WEAPONS = 2;
 
 /** Merge two max-tier weapons: the evolution takes slot `a`, slot `b` is freed. */
 export function evolve(g: Game, a: number, b: number, result: WeaponDef): void {

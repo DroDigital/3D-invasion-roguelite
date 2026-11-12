@@ -1,6 +1,6 @@
 import type { WeaponDef, WeaponTier } from '../data/types';
 
-export const MAX_EMITTERS = 16;
+export const MAX_EMITTERS = 32;
 export const SAT_RING_RADIUS = 1.45;
 export const PLATFORM_RADIUS = 1.85;
 export const GROUND_RADIUS = 1.012;
@@ -74,11 +74,11 @@ export function isMaxTier(w: OwnedWeapon): boolean {
   return w.tier >= w.def.tiers.length - 1;
 }
 
-let deploySerial = 0;
-
 export class Arsenal {
   readonly weapons: OwnedWeapon[] = [];
-  slots = 6;
+  slots = 8;
+  /** Deployment counter for ring angles; per arsenal so runs stay deterministic. */
+  private deploySerial = 0;
 
   owns(id: string): boolean {
     return this.weapons.some((w) => w.def.id === id);
@@ -90,7 +90,7 @@ export class Arsenal {
 
   add(def: WeaponDef): OwnedWeapon | null {
     if (this.weapons.length >= this.slots) return null;
-    const n = deploySerial++;
+    const n = this.deploySerial++;
     const w: OwnedWeapon = {
       def,
       tier: 0,
