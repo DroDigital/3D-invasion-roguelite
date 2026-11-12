@@ -7,6 +7,7 @@ import { WAVE_RULES } from '../data/aliens';
 import type { Rng } from '../core/rng';
 import { RunRng } from '../core/rng';
 import { activateAbility, updateAbilities } from './abilities';
+import { AllyPool, updateAllies } from './allies';
 import { updateAliens } from './aliens';
 import { Build } from './build';
 import { CityState } from './cities';
@@ -43,7 +44,10 @@ export const FX_EVOLVE = 17;
 export const FX_SHOT = 18; // audio only; param: weapon slot
 export const FX_FIELD = 19; // param: radius
 export const FX_CITY_SHIELD = 20;
-const FX_CAP = 512;
+export const FX_DAMAGE = 21; // x2: amount, p: 1 if critical
+export const FX_KILL = 22; // p: alien tier, x2: role
+export const FX_ALLY_SHOT = 23; // line ally -> target
+const FX_CAP = 4096;
 export const FX_STRIDE = 8;
 
 export type Phase = 'intermission' | 'spawning' | 'clearing' | 'shop' | 'gameover';
@@ -82,6 +86,7 @@ export class Game {
   readonly projectiles = new ProjectilePool();
   readonly fields = new FieldPool();
   readonly arsenal = new Arsenal();
+  readonly allies = new AllyPool();
   readonly build = new Build();
   /** Lowest health each city has reached; population only falls with new lows. */
   readonly lowWater = new Float32Array(this.cities.count).fill(CITY_MAX_HEALTH);
@@ -132,7 +137,7 @@ export class Game {
   bossSlot = -1;
 
   /** Spawn bookkeeping (sim/waves.ts). */
-  spawnQueue: { def: number; tier: number; cluster: number }[] = [];
+  spawnQueue: { def: number; tier: number; cluster: number; hpMul?: number }[] = [];
   spawnTimer = 0;
   spawnInterval = 0;
   clusterId = -1;
@@ -176,7 +181,7 @@ export class Game {
   recompute(): void {
     const before = this.arsenal.slots;
     this.build.recompute(this.arsenal.weapons);
-    this.arsenal.slots = Math.max(before, 6 + Math.round(this.build.global('slots')) + (this.extraSlots ?? 0));
+    this.arsenal.slots = Math.max(before, 8 + Math.round(this.build.global('slots')) + (this.extraSlots ?? 0));
   }
   /** Slots bought in the shop. */
   extraSlots = 0;
@@ -221,6 +226,7 @@ export class Game {
     for (const w of this.arsenal.weapons) w.jam = 0;
     updateAliens(this, dt * this.alienScale, dt);
     updateCombat(this, dt);
+    updateAllies(this, dt);
     if (this.build.cityRegen > 0) healCities(this, this.build.cityRegen * dt);
 
     const c = this.cities;

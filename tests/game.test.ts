@@ -15,7 +15,7 @@ function run(seed: string, steps: number, opts: { disarm?: boolean; abilities?: 
   const bot = new Bot(7);
   for (let i = 0; i < steps && g.phase !== 'gameover'; i++) {
     bot.act(g);
-    if (opts.disarm) g.arsenal.weapons.length = 0;
+    if (opts.disarm && !g.offer) g.arsenal.weapons.length = 0;
     g.step(STEP);
   }
   return g;
@@ -69,20 +69,26 @@ describe('progression', () => {
     expect(g.time).toBe(0);
     g.choose(1);
     expect(g.arsenal.weapons.length).toBe(1);
+    // A second starting pick follows, never repeating the first.
+    expect(g.offer!.every((o) => o.kind === 'weapon' && o.weapon.id !== g.arsenal.weapons[0].def.id)).toBe(true);
+    g.choose(0);
+    expect(g.arsenal.weapons.length).toBe(2);
     expect(g.offer).toBeNull();
   });
 
   it('kills grant XP and level-ups offer distinct choices', () => {
     const g = new Game('LEVEL');
     g.choose(0);
+    g.choose(0);
     for (let i = 0; i < 60 * 90 && !g.offer; i++) g.step(STEP);
-    expect(g.level).toBe(2);
+    expect(g.level).toBeGreaterThanOrEqual(2);
     expect(g.offerKind).toBe('levelup');
     expect(new Set(g.offer!.map((o) => o.key)).size).toBe(g.offer!.length);
   });
 
   it('rerolls and banishes are limited, and a banished option never returns', () => {
     const g = new Game('BAN');
+    g.choose(0);
     g.choose(0);
     for (let i = 0; i < 60 * 90 && !g.offer; i++) g.step(STEP);
     const idx = g.offer!.findIndex((o) => o.kind !== 'tier');
@@ -110,11 +116,12 @@ describe('progression', () => {
     b.recompute(a.weapons);
     expect(rail.stats.damage).toBeCloseTo(10 * 1.4);
     expect(missile.stats.damage).toBeCloseTo(30);
-    expect(rail.stats.targets).toBe(2);
+    expect(rail.stats.targets).toBe(3);
   });
 
   it('two max-tier partners produce an evolution offer that merges them into one slot', () => {
     const g = new Game('EVO');
+    g.choose(0);
     g.choose(0);
     g.arsenal.weapons.length = 0;
     const a = g.arsenal.add(weaponById('railgun_sat'))!;
@@ -198,6 +205,7 @@ describe('evolution bookkeeping', () => {
   it('retires both parents so the same evolution cannot be built twice', () => {
     const g = new Game('RETIRE');
     g.choose(0);
+    g.choose(0);
     g.arsenal.weapons.length = 0;
     g.arsenal.add(weaponById('drone_hive'))!.tier = 4;
     g.arsenal.add(weaponById('flak_battery'))!.tier = 4;
@@ -220,6 +228,7 @@ describe('every weapon fires safely', () => {
     for (const w of WEAPONS) {
       const g = new Game(`FIRE-${w.id}`);
       g.choose(0);
+      g.choose(0);
       g.arsenal.weapons.length = 0;
       const o = g.arsenal.add(w)!;
       o.tier = w.tiers.length - 1;
@@ -233,4 +242,34 @@ describe('every weapon fires safely', () => {
       expect(g.kills, w.id).toBeGreaterThan(0);
     }
   }, 120000);
+});
+
+describe('endgame systems', () => {
+  it('waves are big from the start and motherships appear on schedule', async () => {
+    const { planWave } = await import('../src/sim/waves');
+    const g = new Game('HORDE');
+    g.choose(0);
+    g.choose(0);
+    g.wave = 1;
+    planWave(g, g.waveRng);
+    expect(g.spawnQueue.length).toBeGreaterThan(60);
+    g.wave = 8;
+    planWave(g, g.waveRng);
+    expect(g.spawnQueue.some((q) => ALIENS[q.def].mothership)).toBe(true);
+    g.wave = 30;
+    planWave(g, g.waveRng);
+    expect(g.spawnQueue.length).toBeGreaterThan(1000);
+  });
+
+  it('allied squadrons launch during a wave and score kills', () => {
+    const g = new Game('ALLIES');
+    g.choose(0);
+    g.choose(0);
+    for (let i = 0; i < 60 * 40; i++) {
+      while (g.offer) g.choose(0);
+      if (g.phase === 'shop') g.leaveShop();
+      g.step(STEP);
+    }
+    expect(g.allies.kills).toBeGreaterThan(0);
+  });
 });

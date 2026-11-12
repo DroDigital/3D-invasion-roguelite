@@ -12,6 +12,20 @@ export class ShopScreen {
   private salvage = h('span', 'shop-salvage');
   private rerollBtn: HTMLButtonElement;
   private key = '';
+  private onKey = (e: KeyboardEvent): void => {
+    const g = this.game;
+    if (!g.shop || e.target instanceof HTMLInputElement) return;
+    const n = Number(e.key);
+    if (n >= 1 && n <= g.shop.stock.length) {
+      if (g.buy(n - 1)) audio.play('buy', 0.7);
+    } else if (e.key === 'r' || e.key === 'R') {
+      if (g.rerollShop()) audio.play('ui_click', 0.6);
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      audio.play('wave', 0.7);
+      g.leaveShop();
+    }
+  };
 
   constructor(parent: HTMLElement, private game: Game) {
     this.root.id = 'shop';
@@ -20,7 +34,7 @@ export class ShopScreen {
     this.rerollBtn = button('', () => {
       if (game.rerollShop()) audio.play('ui_click', 0.6);
     });
-    const leave = button('LAUNCH NEXT WAVE >', () => {
+    const leave = button('[ENTER] LAUNCH NEXT WAVE >', () => {
       audio.play('wave', 0.7);
       game.leaveShop();
     }, 'cmd primary');
@@ -28,9 +42,11 @@ export class ShopScreen {
     foot.append(this.rerollBtn, leave);
     this.root.append(head, this.cards, foot);
     parent.append(this.root);
+    window.addEventListener('keydown', this.onKey);
   }
 
   dispose(): void {
+    window.removeEventListener('keydown', this.onKey);
     this.root.remove();
   }
 
@@ -44,7 +60,7 @@ export class ShopScreen {
     if (!s) return;
     this.salvage.textContent = `SALVAGE: ${Math.floor(g.salvage)}`;
     const rc = rerollCost(g);
-    this.rerollBtn.textContent = rc === 0 ? 'REROLL STOCK (FREE)' : `REROLL STOCK (${rc})`;
+    this.rerollBtn.textContent = rc === 0 ? '[R] REROLL STOCK (FREE)' : `[R] REROLL STOCK (${rc})`;
     this.rerollBtn.disabled = g.salvage < rc;
     this.cards.textContent = '';
     s.stock.forEach((item, i) => this.cards.append(this.card(item, i)));
@@ -58,7 +74,7 @@ export class ShopScreen {
       passive: 'PASSIVE', relic: 'RELIC // RUN-ALTERING', repair: 'CITY REPAIR', repairAll: 'CITY REPAIR', slot: 'WEAPON SLOT',
       rerolls: 'LEVEL-UP REROLLS', tierUp: 'WEAPON REFIT', ability: 'ACTIVE ABILITY // RARE',
     };
-    card.append(h('div', 'lu-kind', kindLabel[item.def.kind]));
+    card.append(h('div', 'shop-key', `[${i + 1}]`), h('div', 'lu-kind', kindLabel[item.def.kind]));
     const head = h('div', 'lu-head');
     if (item.def.kind === 'tierUp' && item.slot !== undefined) head.append(weaponIcon(g.arsenal.weapons[item.slot].def));
     head.append(h('div', 'lu-name', item.name.toUpperCase()));

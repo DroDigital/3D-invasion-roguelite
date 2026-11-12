@@ -18,7 +18,7 @@ function speciesFor(wave: number): string[] {
 }
 
 function alienFor(species: string, role: AlienRole): number {
-  return ALIENS.findIndex((a) => a.species === species && a.role === role);
+  return ALIENS.findIndex((a) => a.species === species && a.role === role && !a.mothership);
 }
 
 /** Build this wave's spawn list: clusters of one species each, spending the threat budget. */
@@ -42,6 +42,31 @@ export function planWave(g: Game, r: Rng): void {
     queue.push({ def: alienFor(pick.id, 'boss'), tier: 0, cluster: cluster++ });
   }
 
+  // Swarm fodder: big clusters of weak invaders from every side. Cheap kills, lots of them.
+  let fodder = budget * WAVE_RULES.fodderShare;
+  budget -= fodder;
+  // Hordes swell faster than the line: by the late game the sky is thick with swarms.
+  fodder *= 1 + Math.max(0, wave - WAVE_RULES.fodderSwellFrom) / WAVE_RULES.fodderSwell;
+  while (fodder > 0) {
+    const sp = debut && r.chance(0.5) ? debut.id : r.pick(species);
+    const idx = alienFor(sp, 'invader');
+    const size = WAVE_RULES.fodderClusterMin + r.int(WAVE_RULES.fodderClusterMax - WAVE_RULES.fodderClusterMin + 1);
+    for (let k = 0; k < size && fodder > 0; k++) {
+      queue.push({ def: idx, tier: 0, cluster, hpMul: WAVE_RULES.fodderHp });
+      fodder -= WAVE_RULES.fodderThreat * Math.max(1, ALIENS[idx].threat);
+    }
+    cluster++;
+  }
+
+  // Giant motherships: scheduled, announced, and they lead their own swarm cluster.
+  if (wave >= WAVE_RULES.mothershipFrom && (wave - WAVE_RULES.mothershipFrom) % WAVE_RULES.mothershipEvery === 0) {
+    const n = wave >= 30 ? 4 : wave >= 22 ? 3 : wave >= 14 ? 2 : 1;
+    for (let k = 0; k < n; k++) {
+      const sp = r.pick(species);
+      queue.push({ def: ALIENS.findIndex((a) => a.species === sp && a.mothership), tier: 0, cluster: cluster++ });
+    }
+  }
+
   const roles = (Object.keys(weights) as AlienRole[]).filter((role) => role !== 'boss');
   let guard = 0;
   while (budget > 0.5 && guard++ < 400) {
@@ -62,9 +87,25 @@ export function planWave(g: Game, r: Rng): void {
     }
     cluster++;
   }
-  g.spawnQueue = queue;
-  const duration = Math.min(30, WAVE_RULES.duration + wave * 0.4);
-  g.spawnInterval = duration / Math.max(1, queue.length);
+  // Interleave clusters so fodder and line ships arrive together from many directions.
+  const byCluster = new Map<number, Game['spawnQueue']>();
+  for (const q of queue) {
+    let l = byCluster.get(q.cluster);
+    if (!l) byCluster.set(q.cluster, (l = []));
+    l.push(q);
+  }
+  const groups = [...byCluster.values()];
+  for (let k = groups.length - 1; k > 0; k--) {
+    const j = r.int(k + 1);
+    [groups[k], groups[j]] = [groups[j], groups[k]];
+  }
+  // Bosses always lead.
+  const lead = (q: Game['spawnQueue']): number => (ALIENS[q[0].def].role === 'boss' ? 2 : ALIENS[q[0].def].mothership ? 1 : 0);
+  groups.sort((a, b) => lead(b) - lead(a));
+  g.spawnQueue = groups.flat();
+  const duration = Math.min(34, WAVE_RULES.duration + wave * 0.5);
+  // Clusters warp in as bursts; the interval is per cluster, not per ship.
+  g.spawnInterval = duration / Math.max(1, groups.length);
   g.spawnTimer = 0;
   g.clusterId = -1;
 }
@@ -108,16 +149,16 @@ function spawnNext(g: Game): void {
     newDirection(g, r);
   }
   const d = g.clusterDir;
-  let x = d[0] + r.range(-0.12, 0.12);
-  let y = d[1] + r.range(-0.12, 0.12);
-  let z = d[2] + r.range(-0.12, 0.12);
-  const rad = (WAVE_RULES.spawnRadius + r.range(-0.4, 0.4)) / Math.hypot(x, y, z);
+  let x = d[0] + r.range(-0.16, 0.16);
+  let y = d[1] + r.range(-0.16, 0.16);
+  let z = d[2] + r.range(-0.16, 0.16);
+  const rad = (WAVE_RULES.spawnRadius + r.range(-0.3, 0.5)) / Math.hypot(x, y, z);
   x *= rad;
   y *= rad;
   z *= rad;
   const city = pickCity(g, x, y, z, r);
   if (city < 0) return;
-  spawnAlien(g, item.def, item.tier, x, y, z, city, r);
+  spawnAlien(g, item.def, item.tier, x, y, z, city, r, item.hpMul ? { hpMul: item.hpMul, noMods: true, fodder: true } : {});
 }
 
 export function startWave(g: Game): void {
@@ -135,7 +176,9 @@ export function updateWaves(g: Game, dt: number): void {
   } else if (g.phase === 'spawning') {
     g.spawnTimer -= dt;
     while (g.spawnTimer <= 0 && g.spawnQueue.length > 0) {
-      spawnNext(g);
+      // A whole cluster arrives at once through its portal.
+      const cl = g.spawnQueue[0].cluster;
+      while (g.spawnQueue.length > 0 && g.spawnQueue[0].cluster === cl) spawnNext(g);
       g.spawnTimer += g.spawnInterval;
     }
     if (g.spawnQueue.length === 0) g.phase = 'clearing';

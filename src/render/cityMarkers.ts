@@ -63,7 +63,15 @@ export class CityMarkers {
     return out.set(c[i * 3], c[i * 3 + 1], c[i * 3 + 2]).applyMatrix4(this.surface.matrixWorld);
   }
 
-  update(camera: PerspectiveCamera, viewW: number, viewH: number): void {
+  /** City the player is hovering in the HUD (always labelled). */
+  hover = -1;
+
+  /**
+   * Labels only where they matter: cities under attack, damaged or hovered, or every city
+   * when the camera is zoomed in close. Otherwise the beacon alone marks the city.
+   */
+  update(camera: PerspectiveCamera, viewW: number, viewH: number, threat?: Uint16Array): void {
+    const close = camera.position.length() < 2.4;
     const cities = this.cities;
     let colorDirty = false;
     for (let i = 0; i < cities.count; i++) {
@@ -82,7 +90,11 @@ export class CityMarkers {
       this.worldDir(i, this.world);
       // Visible when the camera is above the city's horizon (planet radius 1).
       const facing = this.world.dot(camera.position) > 1.02;
-      if (!facing) {
+      const hot = threat ? threat[i] > 0 : false;
+      const wanted = h > 0 && (close || hot || i === this.hover || h < CITY_MAX_HEALTH - 0.5);
+      el.classList.toggle('hot', hot);
+      el.classList.toggle('hover', i === this.hover);
+      if (!facing || !wanted) {
         if (el.style.display !== 'none') el.style.display = 'none';
         continue;
       }

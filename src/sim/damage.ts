@@ -6,7 +6,7 @@ import { spawnAlien } from './aliens';
 import { matches, TriggerOn } from './build';
 import { ROLE_ABDUCTOR, ROLE_BOSS, ROLE_INVADER } from './enemies';
 import type { Game } from './game';
-import { FX_BLAST, FX_CITY_FALL, FX_CITY_HIT, FX_EXPLOSION, FX_HIT, FX_SHIELD_HIT, FX_STRIKE } from './game';
+import { FX_BLAST, FX_CITY_FALL, FX_CITY_HIT, FX_EXPLOSION, FX_HIT, FX_KILL, FX_SHIELD_HIT, FX_STRIKE } from './game';
 import { chainArc } from './combat';
 
 const MOD_SPLIT = MODIFIERS.find((m) => m.id === 'splitting')!;
@@ -84,7 +84,9 @@ export function killEnemy(g: Game, i: number, slot: number): void {
     returnPeople(g, city, e.cargo[i]);
     e.cargo[i] = 0;
   }
-  g.emitFx(FX_EXPLOSION, x, y, z, 0, 0, 0, e.scale[i] * (role === ROLE_BOSS ? 4 : 1));
+  const giant = role === ROLE_BOSS || ALIENS[e.def[i]].mothership;
+  g.emitFx(FX_EXPLOSION, x, y, z, 0, 0, 0, e.scale[i] * (giant ? 4 : 1));
+  g.emitFx(FX_KILL, x, y, z, role, 0, 0, e.fodder[i] ? 0 : giant ? 8 : tier + 1);
   e.kill(i);
 
   let salvage = def.salvage * e.rewardMul[i];

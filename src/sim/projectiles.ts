@@ -1,4 +1,4 @@
-export const MAX_PROJECTILES = 2500;
+export const MAX_PROJECTILES = 6000;
 
 export const PK_BOLT = 0;
 export const PK_DRONE = 1;

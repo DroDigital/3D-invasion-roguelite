@@ -14,14 +14,17 @@ import { OrbitCamera } from './render/orbitCamera';
 import { Particles } from './render/particles';
 import { Pipeline } from './render/pipeline';
 import { PS2, setDetailTexture } from './render/ps2Material';
-import { createStarfield } from './render/starfield';
+import { createNebula, createStarfield } from './render/starfield';
+import { createSun, sunScreen } from './render/sun';
 import { Bot } from './sim/bot';
 import { devTools } from './dev';
 import { Game, STEP } from './sim/game';
 import { h } from './ui/dom';
+import { Floaters } from './ui/floaters';
 import { Hud } from './ui/hud';
 import { LevelUpScreen } from './ui/levelup';
 import { Menu, openPause } from './ui/menu';
+import { openSettings } from './ui/settings';
 import { ShopScreen } from './ui/shop';
 
 interface Run {
@@ -34,6 +37,7 @@ interface Run {
   hud: Hud;
   levelUp: LevelUpScreen;
   shop: ShopScreen;
+  floaters: Floaters;
   rewarded: boolean;
   points: number;
   evolutions: number;
@@ -60,7 +64,7 @@ async function boot(): Promise<void> {
   setDetailTexture(plates);
   CombatView.initPalettes();
   const earth = new Earth(dayMap, nightMap);
-  scene.add(earth.root, createStarfield(new Rng(20260101)));
+  scene.add(createNebula(), earth.root, createStarfield(new Rng(20260101)), createSun(earth.sunDir));
 
   const applySettings = (): void => {
     const s = profile.settings;
@@ -76,6 +80,10 @@ async function boot(): Promise<void> {
   let run: Run | null = null;
   let menu: Menu | null = null;
   let paused = false;
+  /** Player-selected game speed (1-3x); URL ?speed multiplies it for automation. */
+  let gameSpeed = 1;
+  let hitStop = 0;
+  let absorbedShown = 0;
   let pauseEl: HTMLElement | null = null;
   let targeting: number | null = null;
   const bot = auto ? new Bot(1) : null;
@@ -96,6 +104,7 @@ async function boot(): Promise<void> {
     run.hud.dispose();
     run.levelUp.dispose();
     run.shop.dispose();
+    run.floaters.dispose();
     run = null;
     targeting = null;
     canvas.classList.remove('targeting');
@@ -142,6 +151,19 @@ async function boot(): Promise<void> {
           else orbit.focusOn(markers.worldDir(i, tmp));
         },
         onAbility: (i) => tryAbility(i),
+        onCityHover: (i) => {
+          markers.hover = i;
+        },
+        onSpeed: (n) => setSpeed(n),
+        onPause: () => togglePause(),
+        onSettings: () => openSettings(uiRoot, profile.settings, () => {
+          saveProfile(profile);
+          applySettings();
+          if (run) {
+            run.floaters.enabled = profile.settings.damageNumbers;
+            run.hud.showFps = profile.settings.showFps;
+          }
+        }),
         onRetry: () => startRun(seed),
         onNewRun: () => startRun(randomSeed()),
         onMenu: () => {
@@ -151,15 +173,46 @@ async function boot(): Promise<void> {
       }),
       levelUp: new LevelUpScreen(uiRoot, game),
       shop: new ShopScreen(uiRoot, game),
+      floaters: new Floaters(uiRoot, game, earth.surface),
       rewarded: false,
       points: 0,
       evolutions: 0,
     };
     run = r;
     paused = false;
+    r.hud.setSpeed(gameSpeed, false);
+    r.hud.showFps = profile.settings.showFps;
+    r.floaters.enabled = profile.settings.damageNumbers;
+    if (profile.stats.runs === 0 && !profile.settings.seenHint) {
+      // First run: a short, dismissable briefing on what the player actually does.
+      const hint = h('div', 'hpanel hint');
+      hint.innerHTML =
+        '<b>BRIEFING</b> // Your weapons aim and fire on their own. You build: pick upgrades with <b>1-5</b>, ' +
+        'buy in the depot between waves, and fire abilities with <b>Q</b>/<b>E</b>. <b>TAB</b> game speed, ' +
+        '<b>SPACE</b> pause, <b>F</b> jump to the hottest city, drag/scroll to look around.';
+      const ok = h('button', 'cmd', 'UNDERSTOOD');
+      ok.addEventListener('click', () => {
+        hint.remove();
+        profile.settings.seenHint = true;
+        saveProfile(profile);
+      });
+      hint.prepend(ok);
+      r.hud.root.append(hint);
+    }
     lazyLoadModels();
     audio.playMusic('calm');
     (window as unknown as { __ow: unknown }).__ow = { orbit, game, earth, pipeline, profile, startRun, run, dev: params.get('dev') === '1' ? devTools(game) : undefined };
+  };
+
+  const setSpeed = (n: number): void => {
+    gameSpeed = n;
+    paused = false;
+    run?.hud.setSpeed(gameSpeed, paused);
+  };
+  const togglePause = (): void => {
+    if (!run || run.game.phase === 'gameover') return;
+    paused = !paused;
+    run.hud.setSpeed(gameSpeed, paused);
   };
 
   // ---- abilities: Q/E, on-screen buttons, and click-on-globe targeting ----
@@ -221,7 +274,24 @@ async function boot(): Promise<void> {
 
   window.addEventListener('keydown', (e) => {
     if (!run) return;
-    if (e.key === 'q' || e.key === 'Q') tryAbility(0);
+    if (e.target instanceof HTMLInputElement) return;
+    if (e.key === ' ' && !run.game.offer) {
+      e.preventDefault();
+      togglePause();
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      setSpeed((gameSpeed % 3) + 1);
+    } else if (e.key === 'F3') {
+      e.preventDefault();
+      run.hud.showFps = profile.settings.showFps = !profile.settings.showFps;
+      saveProfile(profile);
+    } else if (e.key === 'f' || e.key === 'F') {
+      // Focus the most threatened city.
+      const g = run.game;
+      let best = -1;
+      for (let k = 0; k < g.cities.count; k++) if (g.threat[k] > 0 && (best < 0 || g.threat[k] > g.threat[best])) best = k;
+      if (best >= 0) orbit.focusOn(run.markers.worldDir(best, tmp));
+    } else if (e.key === 'q' || e.key === 'Q') tryAbility(0);
     else if (e.key === 'e' || e.key === 'E') tryAbility(1);
     else if (e.key === 'Escape') {
       if (targeting !== null) {
@@ -273,7 +343,11 @@ async function boot(): Promise<void> {
       const g = r.game;
       // Fixed-step simulation; rendering reads whatever state the last step left.
       if (!paused) {
-        acc = Math.min(acc + dt * speed, STEP * Math.max(5, speed));
+        // Hit-stop: big moments play out in slow motion for a beat.
+        const slow = hitStop > 0 ? 0.25 : 1;
+        hitStop = Math.max(0, hitStop - dt);
+        const mul = speed * gameSpeed * slow;
+        acc = Math.min(acc + dt * mul, STEP * Math.max(5, mul * 2));
         while (acc >= STEP) {
           if (bot) bot.act(g);
           const evoBefore = g.log.length && g.log[g.log.length - 1];
@@ -295,7 +369,7 @@ async function boot(): Promise<void> {
     earth.update(dt, time);
     orbit.update(dt);
     if (r) {
-      const shake = profile.settings.shake ? r.combat.shake : 0;
+      const shake = profile.settings.shake ? Math.min(1.5, r.combat.shake) : 0;
       if (shake > 0) {
         orbit.camera.position.x += (Math.random() - 0.5) * shake * 0.03;
         orbit.camera.position.y += (Math.random() - 0.5) * shake * 0.03;
@@ -306,14 +380,24 @@ async function boot(): Promise<void> {
     PS2.sunView.value.copy(sunView.copy(earth.sunDir).transformDirection(orbit.camera.matrixWorldInverse));
     PS2.snapRes.value.set(profile.settings.vertexSnap ? pipeline.width * 0.5 : 0, profile.settings.vertexSnap ? pipeline.height * 0.5 : 0);
 
+    sunScreen(earth.sunDir, orbit.camera, pipeline.sun);
     if (r) {
       r.combat.update(dt);
+      hitStop = Math.max(hitStop, r.combat.hitStop);
+      r.combat.hitStop = 0;
+      pipeline.aberration = profile.settings.shake ? Math.min(1, r.combat.shake * 0.8) : 0;
+      if (r.combat.absorbed > absorbedShown + 4) {
+        absorbedShown = r.combat.absorbed;
+        r.hud.pulseXp();
+      }
+      r.floaters.update(dt, orbit.camera, window.innerWidth, window.innerHeight);
       r.particles.update(dt, pipeline.height / 480);
       audio.consume(r.game);
       r.game.fxCount = 0;
       r.indicators.update(orbit.camera, time, window.innerWidth, window.innerHeight);
-      r.markers.update(orbit.camera, window.innerWidth, window.innerHeight);
+      r.markers.update(orbit.camera, window.innerWidth, window.innerHeight, r.game.threat);
       r.hud.update(fps, now, r.points);
+      r.hud.root.classList.toggle('choosing', r.game.offer !== null || r.game.phase === 'shop');
       r.levelUp.update();
       r.shop.update();
       pipeline.flash = r.combat.flash;

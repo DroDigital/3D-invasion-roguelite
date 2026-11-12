@@ -11,8 +11,8 @@ export const PS2 = {
   detail: { value: null as Texture | null },
   time: { value: 0 },
   /** Species gradient maps (dark, light), indexed by instance data.x. */
-  palDark: { value: [new Vector3(), new Vector3(), new Vector3(), new Vector3()] },
-  palLight: { value: [new Vector3(), new Vector3(), new Vector3(), new Vector3()] },
+  palDark: { value: Array.from({ length: 6 }, () => new Vector3()) },
+  palLight: { value: Array.from({ length: 6 }, () => new Vector3()) },
 };
 
 export function setDetailTexture(t: Texture): void {
@@ -30,8 +30,8 @@ uniform vec3 sunColor;
 uniform vec3 ambient;
 uniform vec2 snapRes;
 uniform float affine;
-uniform vec3 palDark[4];
-uniform vec3 palLight[4];
+uniform vec3 palDark[6];
+uniform vec3 palLight[6];
 varying vec3 vCol;
 varying vec3 vLight;
 varying vec3 vUvW;   // detail uv * w, w (affine path)

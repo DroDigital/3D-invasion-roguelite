@@ -21,7 +21,11 @@ npm run build
 | Click a city in the list | Fly the camera to it |
 | 1–5, R | Pick a level-up card, reroll |
 | Q / E (or the on-screen buttons) | Active abilities. Point and city abilities then take a click on the globe (or a city row) |
-| Esc | Pause (settings, abandon run) / cancel ability targeting |
+| Space / Tab | Pause / cycle game speed 1x-2x-3x (also the buttons top-right) |
+| F | Jump the camera to the most threatened city |
+| F3 | Toggle the FPS readout |
+| 1–6, R, Enter (shop) | Buy, restock, launch the next wave |
+| Esc | Pause menu (settings, abandon run) / cancel ability targeting |
 
 ## URL flags
 

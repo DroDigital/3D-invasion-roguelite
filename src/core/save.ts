@@ -10,6 +10,9 @@ export interface Settings {
   affine: boolean;
   bloom: boolean;
   shake: boolean;
+  damageNumbers: boolean;
+  showFps: boolean;
+  seenHint: boolean;
   master: number;
   sfx: number;
   music: number;
@@ -36,7 +39,7 @@ export function defaultProfile(): Profile {
     unlocks: [],
     commander: 'vance',
     loadout: [],
-    settings: { dither: true, crt: true, vertexSnap: true, affine: true, bloom: true, shake: true, master: 0.8, sfx: 0.8, music: 0.5 },
+    settings: { dither: true, crt: true, vertexSnap: true, affine: true, bloom: true, shake: true, damageNumbers: true, showFps: false, seenHint: false, master: 0.8, sfx: 0.8, music: 0.5 },
     stats: { runs: 0, bestWave: 0, kills: 0, evolutions: 0 },
   };
 }

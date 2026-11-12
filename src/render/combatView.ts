@@ -1,19 +1,24 @@
 import {
-  AdditiveBlending, BoxGeometry, BufferAttribute, BufferGeometry, Color, ConeGeometry, DoubleSide, DynamicDrawUsage,
+  AdditiveBlending, BufferAttribute, BufferGeometry, Color, ConeGeometry, DoubleSide, DynamicDrawUsage,
   IcosahedronGeometry, InstancedBufferAttribute, InstancedMesh, LineBasicMaterial, LineSegments, Matrix4,
   MeshBasicMaterial, Object3D, Quaternion, ShaderMaterial, SphereGeometry, TorusGeometry, Vector3,
 } from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { modelNow } from '../core/assets';
+import { ALLIES } from '../data/allies';
+import { MAX_ALLIES } from '../sim/allies';
 import { ALIENS, ALIEN_TIERS, SPECIES } from '../data/aliens';
 import {
-  MAX_ENEMIES, ROLE_ABDUCTOR, ROLE_SABOTEUR, ST_ATTACHED, ST_FLEE, ST_HOVER, ST_SIEGE,
+  MAX_ENEMIES, ROLE_ABDUCTOR, ROLE_INVADER, ROLE_SABOTEUR, ST_ATTACHED, ST_FLEE, ST_HOVER, ST_SIEGE,
 } from '../sim/enemies';
 import type { Game } from '../sim/game';
 import {
-  FX_BEAM, FX_BOMB, FX_CHAIN, FX_CITY_SHIELD, FX_EMP, FX_EVOLVE, FX_NOVA, FX_STRIDE, FX_STRIKE,
+  FX_ALLY_SHOT, FX_BEAM, FX_BLAST, FX_BLINK, FX_BOMB, FX_CHAIN, FX_CITY_FALL, FX_CITY_HIT, FX_CITY_SHIELD, FX_CRIT, FX_EMP, FX_ESCAPE,
+  FX_EVOLVE, FX_EXPLOSION, FX_FIELD, FX_HIT, FX_KILL, FX_MUZZLE, FX_NOVA, FX_SHIELD_HIT, FX_STRIDE, FX_STRIKE, FX_WARP,
 } from '../sim/game';
 import { MAX_FIELDS, MAX_PROJECTILES, PK_DRONE } from '../sim/projectiles';
 import { MAX_EMITTERS, tierOf } from '../sim/weapons';
+import { RibbonLayer, SP_EMBER, SP_FLASH, SP_PORTAL, SP_RING, SP_STAR, SpriteFx, SpriteLayer } from './billboards';
 import { buildTierModel, tierScale } from './kit';
 import { PS2, ps2Material } from './ps2Material';
 
@@ -30,9 +35,27 @@ const col = new Color();
 const HULLS = [...new Set(ALIENS.map((a) => a.model))];
 const HULL_INDEX = new Map(HULLS.map((h, i) => [h, i]));
 const DEF_HULL = ALIENS.map((a) => HULL_INDEX.get(a.model)!);
-const MAX_LINES = 1200;
+const MAX_MOTES = 1500;
+const SPECIES_GLOW = SPECIES.map((sp) => sp.palette[1].map((v) => v * 2.2) as [number, number, number]);
 const ALIEN_RENDER_SCALE = 1.6;
 const MAX_WAVES = 24;
+
+/** Palette slot for Earth's allied fighters (species use 0-3). */
+const PAL_ALLY = 4;
+
+/** Swarm fodder hull: a tiny faceted dart. At a few pixels on screen it reads as well as a full hull. */
+function dartGeometry(): BufferGeometry {
+  const nose = new ConeGeometry(0.22, 0.75, 5).rotateX(Math.PI / 2).translate(0, 0, 0.12);
+  const wings = new ConeGeometry(0.5, 0.35, 3).scale(1, 1, 0.12).rotateX(Math.PI / 2).rotateZ(Math.PI).translate(0, 0, -0.2);
+  const g = mergeGeometries([nose.toNonIndexed(), wings.toNonIndexed()])!;
+  const n = g.getAttribute('position').count;
+  const c = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) c.set(i % 9 < 3 ? [0.75, 0.75, 0.75] : [0.45, 0.45, 0.45], i * 3);
+  g.setAttribute('color', new BufferAttribute(c, 3));
+  g.deleteAttribute('uv');
+  g.computeVertexNormals();
+  return g;
+}
 
 /** Instanced mesh with an `instData` attribute for the PS2 material. */
 function psInstanced(geo: BufferGeometry, cap: number): { mesh: InstancedMesh; data: InstancedBufferAttribute } {
@@ -105,24 +128,35 @@ export class CombatView {
   private hulls: ({ mesh: InstancedMesh; data: InstancedBufferAttribute } | null)[] = HULLS.map(() => null);
   private hullCount = new Int32Array(HULLS.length);
   private shields = fresnel(new IcosahedronGeometry(1, 2), MAX_ENEMIES, 2.5, 1.2);
-  private halos = additive(new TorusGeometry(1, 0.06, 3, 18), MAX_ENEMIES, 0.8);
+  private halos = additive(new TorusGeometry(1, 0.035, 3, 18), MAX_ENEMIES, 0.55);
   private beams = additive(new ConeGeometry(1, 1, 10, 1, true).translate(0, -0.5, 0), 64, 0.35);
-  private bolts = additive(new BoxGeometry(0.006, 0.006, 0.05), MAX_PROJECTILES);
   private drones: { mesh: InstancedMesh; data: InstancedBufferAttribute };
   private fields = fresnel(new SphereGeometry(1, 20, 12), MAX_FIELDS, 3.0, 0.45);
   private waves = additive(new TorusGeometry(1, 0.02, 3, 48), MAX_WAVES, 0.9);
   private domes = additive(new SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), 32, 0.35);
   private weapons: (WeaponMesh | null)[] = [];
+  private fodderView = psInstanced(dartGeometry(), MAX_ENEMIES);
+  private allyViews: ({ mesh: InstancedMesh; data: InstancedBufferAttribute } | null)[] = ALLIES.models.map(() => null);
   private trails: LineSegments;
   private trailPos = new Float32Array(MAX_ENEMIES * 6);
   private trailCol = new Float32Array(MAX_ENEMIES * 6);
-  private lines: LineSegments;
-  private linePos = new Float32Array(MAX_LINES * 6);
-  private lineCol = new Float32Array(MAX_LINES * 6);
-  private lineBase = new Float32Array(MAX_LINES * 3);
-  private lineTtl = new Float32Array(MAX_LINES);
-  private lineMax = new Float32Array(MAX_LINES);
-  private lineNext = 0;
+  /** Juice layers: animated sprites, beam/lightning ribbons, projectile tracers, engine glows and XP motes. */
+  private sprites: SpriteFx;
+  private ribbons: RibbonLayer;
+  private tracers: RibbonLayer;
+  private glows: SpriteLayer;
+  private moteX = new Float32Array(MAX_MOTES);
+  private moteY = new Float32Array(MAX_MOTES);
+  private moteZ = new Float32Array(MAX_MOTES);
+  private moteVX = new Float32Array(MAX_MOTES);
+  private moteVY = new Float32Array(MAX_MOTES);
+  private moteVZ = new Float32Array(MAX_MOTES);
+  private moteT = new Float32Array(MAX_MOTES);
+  private moteNext = 0;
+  /** XP motes absorbed this frame (HUD pulses the XP bar). */
+  absorbed = 0;
+  /** Hit-stop request in seconds of slow motion; main.ts consumes it. */
+  hitStop = 0;
   private waveData = new Float32Array(MAX_WAVES * 8); // x y z, radius, ttl, maxTtl, r g (b in color)
   private waveCol: Color[] = Array.from({ length: MAX_WAVES }, () => new Color());
   private waveNext = 0;
@@ -153,14 +187,22 @@ export class CombatView {
       l.frustumCulled = false;
       return l;
     };
-    this.trails = mkLines(this.trailPos, this.trailCol, 0.35);
-    this.lines = mkLines(this.linePos, this.lineCol, 1);
+    this.trails = mkLines(this.trailPos, this.trailCol, 0.16);
+    this.sprites = new SpriteFx(parent);
+    this.ribbons = new RibbonLayer(parent, 4000, false);
+    this.tracers = new RibbonLayer(parent, MAX_PROJECTILES, true);
+    this.glows = new SpriteLayer(parent, MAX_ENEMIES + MAX_MOTES + 64);
 
-    for (const o of [this.shields, this.halos, this.beams, this.bolts, this.drones.mesh, this.fields, this.waves, this.domes, this.trails, this.lines]) parent.add(o);
+    for (const o of [this.shields, this.halos, this.beams, this.drones.mesh, this.fields, this.waves, this.domes, this.trails, this.fodderView.mesh]) parent.add(o);
   }
 
   dispose(): void {
-    const objs = [this.shields, this.halos, this.beams, this.bolts, this.drones.mesh, this.fields, this.waves, this.domes, this.trails, this.lines];
+    this.sprites.dispose();
+    this.ribbons.dispose();
+    this.tracers.dispose();
+    this.glows.dispose();
+    const objs = [this.shields, this.halos, this.beams, this.drones.mesh, this.fields, this.waves, this.domes, this.trails, this.fodderView.mesh];
+    for (const v of this.allyViews) if (v) objs.push(v.mesh);
     for (const v of this.hulls) if (v) objs.push(v.mesh);
     for (const v of this.weapons) if (v) objs.push(v.mesh);
     for (const o of objs) {
@@ -180,24 +222,12 @@ export class CombatView {
     return v;
   }
 
-  private addLine(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, c: Color, ttl: number): void {
-    const i = this.lineNext;
-    this.lineNext = (this.lineNext + 1) % MAX_LINES;
-    const o = i * 6;
-    this.linePos[o] = x1;
-    this.linePos[o + 1] = y1;
-    this.linePos[o + 2] = z1;
-    this.linePos[o + 3] = x2;
-    this.linePos[o + 4] = y2;
-    this.linePos[o + 5] = z2;
-    this.lineBase[i * 3] = c.r;
-    this.lineBase[i * 3 + 1] = c.g;
-    this.lineBase[i * 3 + 2] = c.b;
-    this.lineTtl[i] = this.lineMax[i] = ttl;
+  private addLine(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, c: Color, ttl: number, width = 0.006): void {
+    this.ribbons.add(x1, y1, z1, x2, y2, z2, width, ttl, c.r, c.g, c.b);
   }
 
   /** Lightning: a jagged polyline between two points. */
-  private addBolt(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, c: Color, ttl: number): void {
+  private addBolt(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, c: Color, ttl: number, width = 0.005): void {
     const n = 4;
     let px = x1;
     let py = y1;
@@ -209,7 +239,7 @@ export class CombatView {
       const nx = x1 + (x2 - x1) * t + (Math.random() - 0.5) * j;
       const ny = y1 + (y2 - y1) * t + (Math.random() - 0.5) * j;
       const nz = z1 + (z2 - z1) * t + (Math.random() - 0.5) * j;
-      this.addLine(px, py, pz, nx, ny, nz, c, ttl);
+      this.addLine(px, py, pz, nx, ny, nz, c, ttl, width);
       px = nx;
       py = ny;
       pz = nz;
@@ -229,59 +259,176 @@ export class CombatView {
     this.waveCol[i].copy(c);
   }
 
-  /** Consume the frame's sim fx for lines and shockwaves (particles read the same buffer). */
+  /** Consume the frame's sim fx: sprites, ribbons, shockwaves, motes, shake and hit-stop. */
   consumeFx(): void {
     const g = this.game;
     const f = g.fx;
+    const sp = this.sprites;
     for (let k = 0; k < g.fxCount; k++) {
       const o = k * FX_STRIDE;
       const kind = f[o];
+      const x = f[o + 1];
+      const y = f[o + 2];
+      const z = f[o + 3];
       const slot = f[o + 7] | 0;
       const c = this.slotColor[slot] ?? col.set(2, 2, 2);
       switch (kind) {
+        case FX_HIT:
+          sp.spawn(SP_FLASH, x, y, z, 0.012, 0.03, 0.1, 1.8, 1.4, 0.9);
+          break;
+        case FX_EXPLOSION: {
+          const size = f[o + 7];
+          // Sized by the hull: fodder pops, line ships boom, giants detonate.
+          const r = Math.max(0.03, size * 1.3);
+          sp.spawn(SP_FLASH, x, y, z, r * 0.7, r * 2, 0.26, 3.2, 1.9, 0.8);
+          if (size > 0.05 || Math.random() < 0.35) sp.spawn(SP_RING, x, y, z, r * 0.3, r * (size > 0.09 ? 4 : 2.2), 0.4, 2.2, 1.2, 0.45);
+          sp.spawn(SP_FLASH, x, y, z, r * 0.4, r * 1.1, 0.55, 1.6, 0.5, 0.15, 0.05);
+          if (size > 0.09) {
+            sp.spawn(SP_STAR, x, y, z, r * 3, r * 6, 0.35, 3, 2.6, 2);
+            this.shake = Math.max(this.shake, Math.min(1.2, size * 2.5));
+          }
+          if (size > 0.4) {
+            // Boss kill: a beat of slow motion and a long second shockwave.
+            this.hitStop = Math.max(this.hitStop, 0.45);
+            sp.spawn(SP_RING, x, y, z, r, r * 9, 1.1, 3, 2.2, 1.2, 0.08);
+            this.flash = Math.max(this.flash, 0.5);
+          }
+          break;
+        }
+        case FX_KILL:
+          this.spawnMotes(x, y, z, f[o + 7] > 0 ? 3 + f[o + 7] * 3 : 1);
+          break;
+        case FX_ALLY_SHOT:
+          this.addLine(x, y, z, f[o + 4], f[o + 5], f[o + 6], col.set(1.4, 2.4, 3.2), 0.07, 0.0025);
+          sp.spawn(SP_FLASH, f[o + 4], f[o + 5], f[o + 6], 0.01, 0.025, 0.08, 1.4, 2.2, 3);
+          break;
+        case FX_MUZZLE:
+          sp.spawn(SP_FLASH, x, y, z, 0.02, 0.05, 0.08, c.r * 0.8, c.g * 0.8, c.b * 0.8);
+          break;
+        case FX_CITY_HIT:
+          sp.spawn(SP_FLASH, x * 1.01, y * 1.01, z * 1.01, 0.05, 0.13, 0.35, 3, 0.9, 0.3);
+          sp.spawn(SP_RING, x * 1.01, y * 1.01, z * 1.01, 0.02, 0.16, 0.5, 2.4, 0.6, 0.2);
+          break;
+        case FX_BLAST:
+          sp.spawn(SP_FLASH, x, y, z, slot * 0.6 + 0.03, f[o + 7] * 1.8 + 0.05, 0.28, 3, 1.7, 0.6);
+          sp.spawn(SP_RING, x, y, z, f[o + 7] * 0.4, f[o + 7] * 2.4 + 0.05, 0.4, 2.6, 1.4, 0.5);
+          break;
+        case FX_CRIT:
+          sp.spawn(SP_STAR, x, y, z, 0.05, 0.11, 0.22, 3, 3, 2.4);
+          break;
+        case FX_SHIELD_HIT:
+          sp.spawn(SP_RING, x, y, z, 0.03, 0.08, 0.2, 0.5, 1.4, 2.6);
+          break;
         case FX_BEAM: {
           const pw = this.slotPower[slot] ?? 1;
-          const ttl = (0.12 + (g.arsenal.weapons[slot]?.def.shot.width ?? 1) * 0.04) * (0.8 + pw * 0.25);
-          this.addLine(f[o + 1], f[o + 2], f[o + 3], f[o + 4], f[o + 5], f[o + 6], c, ttl);
-          // Higher tiers fire a visibly heavier beam: a second, offset core line.
-          if (pw >= 1.6) {
-            const e = 0.006 * pw;
-            this.addLine(f[o + 1] + e, f[o + 2] + e, f[o + 3], f[o + 4] + e, f[o + 5] + e, f[o + 6], c, ttl * 0.8);
-          }
+          const wdt = g.arsenal.weapons[slot]?.def.shot.width ?? 1;
+          const ttl = (0.1 + wdt * 0.04) * (0.8 + pw * 0.25);
+          this.addLine(x, y, z, f[o + 4], f[o + 5], f[o + 6], c, ttl, 0.004 * wdt * (0.7 + pw * 0.5));
+          sp.spawn(SP_FLASH, f[o + 4], f[o + 5], f[o + 6], 0.02, 0.05 * pw, 0.12, c.r, c.g, c.b);
           break;
         }
         case FX_CHAIN: {
           const pw = this.slotPower[slot] ?? 1;
-          this.addBolt(f[o + 1], f[o + 2], f[o + 3], f[o + 4], f[o + 5], f[o + 6], c, 0.14 + pw * 0.05);
-          if (pw >= 1.6) this.addBolt(f[o + 1], f[o + 2], f[o + 3], f[o + 4], f[o + 5], f[o + 6], c, 0.12);
+          this.addBolt(x, y, z, f[o + 4], f[o + 5], f[o + 6], c, 0.14 + pw * 0.05, 0.004 * (0.7 + pw * 0.4));
+          if (pw >= 1.6) this.addBolt(x, y, z, f[o + 4], f[o + 5], f[o + 6], c, 0.12, 0.003);
+          sp.spawn(SP_FLASH, f[o + 4], f[o + 5], f[o + 6], 0.02, 0.05, 0.12, c.r, c.g, c.b);
           break;
         }
         case FX_BOMB:
-          this.addLine(f[o + 1], f[o + 2], f[o + 3], f[o + 4], f[o + 5], f[o + 6], col.set(3, 0.6, 0.3), 0.35);
+          this.addLine(x, y, z, f[o + 4], f[o + 5], f[o + 6], col.set(3, 0.6, 0.3), 0.35, 0.01 * (f[o + 7] || 1));
+          break;
+        case FX_ESCAPE:
+          sp.spawn(SP_PORTAL, x, y, z, 0.05, 0.18, 0.7, 0.6, 2.2, 1.4);
+          break;
+        case FX_BLINK:
+          sp.spawn(SP_FLASH, x, y, z, 0.03, 0.07, 0.15, 1.2, 1.6, 2.6);
+          break;
+        case FX_WARP:
+          // Aliens arrive through glowing portals.
+          sp.spawn(SP_PORTAL, x, y, z, f[o + 7] * 2 + 0.05, f[o + 7] * 5 + 0.12, 0.6, 1.6, 0.7, 2.8);
+          sp.spawn(SP_FLASH, x, y, z, 0.05, f[o + 7] * 3 + 0.08, 0.25, 1.5, 1.0, 2.8);
+          break;
+        case FX_FIELD:
+          sp.spawn(SP_RING, x, y, z, f[o + 7] * 0.4, f[o + 7] * 2, 0.4, c.r, c.g, c.b);
           break;
         case FX_NOVA:
           this.addWave(0, 0, 0, 3.2, 0.8, c);
-          this.shake = Math.max(this.shake, 0.3);
+          this.shake = Math.max(this.shake, 0.4);
           break;
         case FX_STRIKE:
-          this.addWave(f[o + 1], f[o + 2], f[o + 3], f[o + 7] * 1.5, 0.7, col.set(3, 2.2, 1.2));
-          this.addLine(f[o + 1] * 3, f[o + 2] * 3, f[o + 3] * 3, f[o + 1], f[o + 2], f[o + 3], col.set(4, 3.6, 3), 0.4);
-          this.shake = Math.max(this.shake, 1);
+          this.addWave(x, y, z, f[o + 7] * 1.5, 0.7, col.set(3, 2.2, 1.2));
+          this.addLine(x * 4, y * 4, z * 4, x, y, z, col.set(4, 3.6, 3), 0.5, 0.05);
+          sp.spawn(SP_FLASH, x, y, z, 0.2, 0.8, 0.6, 4, 3, 1.8);
+          sp.spawn(SP_RING, x, y, z, 0.1, 1.1, 0.8, 3, 2, 1);
+          sp.spawn(SP_STAR, x, y, z, 0.5, 1.2, 0.5, 3, 3, 3);
+          this.shake = Math.max(this.shake, 1.3);
           this.flash = Math.max(this.flash, 0.5);
+          this.hitStop = Math.max(this.hitStop, 0.25);
           break;
         case FX_EMP:
           this.addWave(0, 0, 0, 3.5, 1.0, col.set(1.2, 2, 3.6));
           this.flash = Math.max(this.flash, 0.4);
+          this.shake = Math.max(this.shake, 0.6);
           break;
         case FX_EVOLVE:
           this.addWave(0, 0, 0, 2.2, 1.2, col.set(3, 2.6, 1));
-          this.flash = Math.max(this.flash, 0.6);
-          this.shake = Math.max(this.shake, 0.5);
+          this.flash = Math.max(this.flash, 0.7);
+          this.shake = Math.max(this.shake, 0.8);
+          this.hitStop = Math.max(this.hitStop, 0.5);
+          break;
+        case FX_CITY_FALL:
+          sp.spawn(SP_FLASH, x, y, z, 0.15, 0.6, 0.9, 4, 1.4, 0.5);
+          sp.spawn(SP_RING, x * 1.01, y * 1.01, z * 1.01, 0.05, 0.9, 1.0, 3, 0.9, 0.3);
+          this.shake = Math.max(this.shake, 1.1);
+          this.flash = Math.max(this.flash, 0.3);
+          this.hitStop = Math.max(this.hitStop, 0.3);
           break;
         case FX_CITY_SHIELD:
-          this.addWave(f[o + 1], f[o + 2], f[o + 3], 0.25, 0.6, col.set(0.8, 2, 3.4));
+          this.addWave(x, y, z, 0.25, 0.6, col.set(0.8, 2, 3.4));
           break;
       }
+    }
+  }
+
+  private spawnMotes(x: number, y: number, z: number, n: number): void {
+    for (let k = 0; k < n; k++) {
+      const i = this.moteNext;
+      this.moteNext = (this.moteNext + 1) % MAX_MOTES;
+      this.moteX[i] = x;
+      this.moteY[i] = y;
+      this.moteZ[i] = z;
+      this.moteVX[i] = (Math.random() - 0.5) * 0.9;
+      this.moteVY[i] = (Math.random() - 0.5) * 0.9;
+      this.moteVZ[i] = (Math.random() - 0.5) * 0.9;
+      this.moteT[i] = 2.5;
+    }
+  }
+
+  /** XP motes burst out of kills, then home into the planet (XP is collected automatically). */
+  private updateMotes(dt: number): void {
+    const gl = this.glows;
+    for (let i = 0; i < MAX_MOTES; i++) {
+      if (this.moteT[i] <= 0) continue;
+      this.moteT[i] -= dt;
+      const x = this.moteX[i];
+      const y = this.moteY[i];
+      const z = this.moteZ[i];
+      const r = Math.hypot(x, y, z) || 1;
+      const age = 2.5 - this.moteT[i];
+      const pull = Math.min(14, age * age * 10);
+      this.moteVX[i] += (-x / r) * pull * dt - this.moteVX[i] * 2 * dt;
+      this.moteVY[i] += (-y / r) * pull * dt - this.moteVY[i] * 2 * dt;
+      this.moteVZ[i] += (-z / r) * pull * dt - this.moteVZ[i] * 2 * dt;
+      this.moteX[i] += this.moteVX[i] * dt;
+      this.moteY[i] += this.moteVY[i] * dt;
+      this.moteZ[i] += this.moteVZ[i] * dt;
+      if (r < 1.04 || this.moteT[i] <= 0) {
+        this.moteT[i] = 0;
+        this.absorbed++;
+        this.sprites.spawn(SP_FLASH, x, y, z, 0.01, 0.03, 0.15, 0.5, 1.6, 2.2);
+        continue;
+      }
+      gl.push(x, y, z, 0.022, 0.5, 1.7, 2.4, SP_EMBER);
     }
   }
 
@@ -291,9 +438,15 @@ export class CombatView {
     this.updateWeapons();
     this.consumeFx();
     this.updateAliens();
+    this.updateAllies();
     this.updateProjectiles();
+    this.glows.end();
+    this.sprites.update(dt);
+    this.ribbons.update(dt);
+    this.tracers.update(dt);
     this.updateFields(dt);
-    this.updateLines(dt);
+    this.glows.begin();
+    this.updateMotes(dt);
     this.updateWaves(dt);
     this.updateDomes();
     this.shake = Math.max(0, this.shake - dt * 2.5);
@@ -350,6 +503,7 @@ export class CombatView {
     const e = g.enemies;
     const c = g.cities;
     this.hullCount.fill(0);
+    let nf = 0;
     let sh = 0;
     let ha = 0;
     let bm = 0;
@@ -368,7 +522,12 @@ export class CombatView {
       s.setScalar(sc);
       m.compose(p, q, s);
       const tier = ALIEN_TIERS[e.tier[i]];
-      if (view) {
+      if (e.fodder[i]) {
+        const fv = this.fodderView;
+        fv.mesh.setMatrixAt(nf, m);
+        fv.mesh.setColorAt(nf, col.setRGB(1, 1, 1));
+        fv.data.setXYZW(nf++, e.species[i], e.flash[i] > 0 ? 0.8 : 0, e.cloaked[i] ? 0.8 : 0, 0.05);
+      } else if (view) {
         const n = this.hullCount[h]++;
         view.mesh.setMatrixAt(n, m);
         // Rarity shows as a light tint plus the halo ring; the species palette stays readable.
@@ -376,7 +535,7 @@ export class CombatView {
         view.mesh.setColorAt(n, col.setRGB(1 + (Math.min(1.4, tier.color[0]) - 1) * tk, 1 + (Math.min(1.4, tier.color[1]) - 1) * tk, 1 + (Math.min(1.4, tier.color[2]) - 1) * tk));
         view.data.setXYZW(n, e.species[i], e.flash[i] > 0 ? 0.8 : 0, e.cloaked[i] ? 0.8 : 0, e.tier[i] >= 2 ? 0.08 : 0);
       }
-      if (e.shield[i] > 0 && !e.cloaked[i]) {
+      if (e.shield[i] > 0 && !e.cloaked[i] && !e.fodder[i]) {
         s.setScalar(sc * 0.75);
         m.compose(p, q, s);
         this.shields.setMatrixAt(sh, m);
@@ -388,7 +547,7 @@ export class CombatView {
         q.setFromUnitVectors(UP, d);
         m.compose(p, q, s);
         this.halos.setMatrixAt(ha, m);
-        this.halos.setColorAt(ha++, col.setRGB(tier.color[0] * 0.8, tier.color[1] * 0.8, tier.color[2] * 0.8));
+        this.halos.setColorAt(ha++, col.setRGB(tier.color[0] * 0.5, tier.color[1] * 0.5, tier.color[2] * 0.5));
       }
       const k = e.city[i] * 3;
       if (e.role[i] === ROLE_ABDUCTOR && e.state[i] === ST_HOVER && bm < 64) {
@@ -402,7 +561,18 @@ export class CombatView {
         const pulse = 0.7 + 0.3 * Math.sin(PS2.time.value * 9 + i);
         this.beams.setColorAt(bm++, col.setRGB(0.6 * pulse, 1.6 * pulse, 1.2 * pulse));
       }
-      if (e.state[i] !== ST_SIEGE && e.state[i] !== ST_HOVER && e.state[i] !== ST_ATTACHED && !e.cloaked[i]) {
+      if (!e.cloaked[i] && e.state[i] !== ST_SIEGE) {
+        // Engine glow behind the hull, in the species colour, flickering.
+        const gc = SPECIES_GLOW[e.species[i]];
+        const fl = 0.75 + 0.25 * Math.sin(PS2.time.value * 31 + i * 1.7);
+        const off = sc * 0.55;
+        // Fodder gets a pinprick; line ships and giants a proper exhaust.
+        const gs = e.fodder[i] ? 0.35 : 0.7;
+        const gi = e.fodder[i] ? 0.35 : 0.6;
+        this.glows.push(e.x[i] - e.dx[i] * off, e.y[i] - e.dy[i] * off, e.z[i] - e.dz[i] * off, sc * gs * fl, gc[0] * fl * gi, gc[1] * fl * gi, gc[2] * fl * gi, SP_FLASH);
+      }
+      // Trajectories only for line ships: swarm fodder would bury the globe in lines.
+      if (e.role[i] !== ROLE_INVADER && e.state[i] !== ST_SIEGE && e.state[i] !== ST_HOVER && e.state[i] !== ST_ATTACHED && !e.cloaked[i]) {
         // Trajectory: approaching ships show where they are headed; fleeing abductors show escape.
         const flee = e.state[i] === ST_FLEE;
         const sab = e.role[i] === ROLE_SABOTEUR;
@@ -453,6 +623,10 @@ export class CombatView {
       v.mesh.instanceColor!.needsUpdate = true;
       v.data.needsUpdate = true;
     }
+    this.fodderView.mesh.count = nf;
+    this.fodderView.mesh.instanceMatrix.needsUpdate = true;
+    this.fodderView.mesh.instanceColor!.needsUpdate = true;
+    this.fodderView.data.needsUpdate = true;
     for (const [mesh, n] of [[this.shields, sh], [this.halos, ha], [this.beams, bm]] as const) {
       mesh.count = n;
       mesh.instanceMatrix.needsUpdate = true;
@@ -463,11 +637,46 @@ export class CombatView {
     this.trails.geometry.attributes.color.needsUpdate = true;
   }
 
+  /** Allied fighters: friendly palette, cyan engines, banking with their velocity. */
+  private updateAllies(): void {
+    const a = this.game.allies;
+    const counts = [0, 0, 0];
+    for (let i = 0; i < MAX_ALLIES; i++) {
+      if (!a.alive[i]) continue;
+      const mi = a.model[i];
+      let v = this.allyViews[mi];
+      if (!v) {
+        const geo = modelNow(`ally:${ALLIES.models[mi]}`);
+        if (!geo) continue;
+        v = this.allyViews[mi] = psInstanced(geo, MAX_ALLIES);
+        this.parent.add(v.mesh);
+      }
+      p.set(a.x[i], a.y[i], a.z[i]);
+      d.set(a.vx[i], a.vy[i], a.vz[i]).normalize();
+      q.setFromUnitVectors(FWD, d);
+      s.setScalar(0.045);
+      m.compose(p, q, s);
+      const n = counts[mi]++;
+      v.mesh.setMatrixAt(n, m);
+      v.mesh.setColorAt(n, col.setRGB(1, 1, 1));
+      v.data.setXYZW(n, PAL_ALLY, 0, 0, 0.15);
+      const fl = 0.8 + 0.2 * Math.sin(PS2.time.value * 40 + i);
+      this.glows.push(p.x - d.x * 0.028, p.y - d.y * 0.028, p.z - d.z * 0.028, 0.035 * fl, 0.5 * fl, 1.6 * fl, 3 * fl, SP_FLASH);
+    }
+    this.allyViews.forEach((v, k) => {
+      if (!v) return;
+      v.mesh.count = counts[k];
+      v.mesh.instanceMatrix.needsUpdate = true;
+      v.mesh.instanceColor!.needsUpdate = true;
+      v.data.needsUpdate = true;
+    });
+  }
+
   private updateProjectiles(): void {
     const g = this.game;
     const pr = g.projectiles;
-    let nb = 0;
     let nd = 0;
+    this.tracers.begin();
     for (let i = 0; i < pr.high; i++) {
       if (!pr.alive[i]) continue;
       const w = g.arsenal.weapons[pr.weapon[i]];
@@ -484,21 +693,16 @@ export class CombatView {
         this.drones.data.setXYZW(nd++, -1, 0, 0, 0.6);
         continue;
       }
-      if (shot) {
-        const wd = shot.width * (pr.crit[i] ? 1.6 : 1) * (0.75 + pw * 0.3);
-        s.set(wd, wd, shot.length * (0.8 + pw * 0.25));
-        col.setRGB(shot.color[0], shot.color[1], shot.color[2]).multiplyScalar(0.75 + pw * 0.25);
-      } else {
-        s.setScalar(1);
-        col.set(2, 2, 2);
-      }
-      m.compose(p, q, s);
-      this.bolts.setMatrixAt(nb, m);
-      this.bolts.setColorAt(nb++, col);
+      // Glowing tracer: a ribbon from the tail to the head, brighter and thicker with tier.
+      const wd = (shot?.width ?? 1) * (pr.crit[i] ? 1.6 : 1) * (0.7 + pw * 0.35) * 0.006;
+      const len = (shot?.length ?? 1) * (0.8 + pw * 0.25) * 0.07;
+      const k = 0.75 + pw * 0.25;
+      const cr = (shot?.color[0] ?? 2) * k;
+      const cg = (shot?.color[1] ?? 2) * k;
+      const cb = (shot?.color[2] ?? 2) * k;
+      this.tracers.push(p.x - d.x * len, p.y - d.y * len, p.z - d.z * len, p.x, p.y, p.z, wd, cr, cg, cb);
+      if (pw >= 1.6) this.glows.push(p.x, p.y, p.z, wd * 5, cr * 0.4, cg * 0.4, cb * 0.4, SP_FLASH);
     }
-    this.bolts.count = nb;
-    this.bolts.instanceMatrix.needsUpdate = true;
-    this.bolts.instanceColor!.needsUpdate = true;
     this.drones.mesh.count = nd;
     this.drones.mesh.instanceMatrix.needsUpdate = true;
     this.drones.mesh.instanceColor!.needsUpdate = true;
@@ -525,32 +729,6 @@ export class CombatView {
     this.fields.count = n;
     this.fields.instanceMatrix.needsUpdate = true;
     this.fields.instanceColor!.needsUpdate = true;
-  }
-
-  private updateLines(dt: number): void {
-    let any = false;
-    for (let i = 0; i < MAX_LINES; i++) {
-      if (this.lineTtl[i] <= 0) {
-        if (this.lineCol[i * 6] !== 0 || this.lineCol[i * 6 + 3] !== 0) {
-          this.lineCol.fill(0, i * 6, i * 6 + 6);
-          any = true;
-        }
-        continue;
-      }
-      this.lineTtl[i] -= dt;
-      const a = Math.max(0, this.lineTtl[i] / this.lineMax[i]);
-      const o = i * 6;
-      for (let k = 0; k < 2; k++) {
-        this.lineCol[o + k * 3] = this.lineBase[i * 3] * a;
-        this.lineCol[o + k * 3 + 1] = this.lineBase[i * 3 + 1] * a;
-        this.lineCol[o + k * 3 + 2] = this.lineBase[i * 3 + 2] * a;
-      }
-      any = true;
-    }
-    if (any) {
-      this.lines.geometry.attributes.position.needsUpdate = true;
-      this.lines.geometry.attributes.color.needsUpdate = true;
-    }
   }
 
   private updateWaves(dt: number): void {
@@ -601,5 +779,7 @@ export class CombatView {
       PS2.palDark.value[i].set(...sp.palette[0]);
       PS2.palLight.value[i].set(...sp.palette[1]);
     });
+    PS2.palDark.value[PAL_ALLY].set(0.06, 0.1, 0.24);
+    PS2.palLight.value[PAL_ALLY].set(0.5, 0.62, 0.85);
   }
 }

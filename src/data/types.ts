@@ -234,6 +234,8 @@ export interface AlienDef {
   /** Wave budget cost. */
   threat: number;
   minWave: number;
+  /** Giant carrier that appears on a schedule rather than from the budget. */
+  mothership?: boolean;
 }
 
 export type AlienTier = 'common' | 'elite' | 'champion' | 'mythic';

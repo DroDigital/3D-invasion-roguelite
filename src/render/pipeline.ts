@@ -1,6 +1,6 @@
 import {
   Camera, HalfFloatType, LinearFilter, Mesh, NearestFilter, OrthographicCamera, PlaneGeometry, Scene,
-  ShaderMaterial, Texture, Vector2, WebGLRenderer, WebGLRenderTarget,
+  ShaderMaterial, Texture, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
 
 /** Internal vertical resolution; width follows the window aspect. */
@@ -39,6 +39,10 @@ export class Pipeline {
   settings: PostSettings = { bloom: true, dither: true, crt: true };
   /** Full-screen white flash amount (abilities, evolutions). */
   flash = 0;
+  /** Sun screen position (uv) and visibility, for the lens flare. */
+  sun = { x: 0, y: 0, vis: 0 };
+  /** Chromatic aberration pulse (explosions, impacts). */
+  aberration = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
@@ -79,12 +83,14 @@ export class Pipeline {
       uniforms: {
         tScene: { value: null }, tBloom0: { value: null }, tBloom1: { value: null },
         bloom: { value: 1 }, dither: { value: 1 }, res: { value: new Vector2() }, flash: { value: 0 },
+        sun: { value: new Vector3() }, aspect: { value: 1 },
       },
       vertexShader: QUAD_VERT,
       fragmentShader: /* glsl */ `
         uniform sampler2D tScene, tBloom0, tBloom1;
-        uniform float bloom, dither, flash;
+        uniform float bloom, dither, flash, aspect;
         uniform vec2 res;
+        uniform vec3 sun; // uv.xy, visibility
         varying vec2 vUv;
         float bayer(vec2 p) {
           ivec2 i = ivec2(mod(p, 4.0));
@@ -94,6 +100,22 @@ export class Pipeline {
         void main() {
           vec3 c = texture2D(tScene, vUv).rgb;
           if (bloom > 0.5) c += texture2D(tBloom0, vUv).rgb * 0.55 + texture2D(tBloom1, vUv).rgb * 0.45;
+          if (sun.z > 0.0) {
+            // Lens flare: veiling glare, anamorphic streak and ghosts mirrored through the centre.
+            vec2 d = (vUv - sun.xy) * vec2(aspect, 1.0);
+            float r = length(d);
+            c += vec3(1.0, 0.85, 0.6) * exp(-r * 4.0) * 0.25 * sun.z;
+            c += vec3(0.5, 0.75, 1.0) * exp(-abs(d.y) * 160.0) * exp(-abs(d.x) * 2.2) * 0.9 * sun.z;
+            vec2 axis = vec2(0.5) - sun.xy;
+            for (int k = 0; k < 5; k++) {
+              float f = float(k) * 0.42 + 0.35;
+              vec2 g = (vUv - (sun.xy + axis * f * 2.0)) * vec2(aspect, 1.0);
+              float rad = 0.03 + float(k) * 0.018;
+              float ghost = smoothstep(rad, rad * 0.7, length(g));
+              vec3 tint = k == 1 ? vec3(0.3, 1.0, 0.6) : k == 3 ? vec3(1.0, 0.4, 0.8) : vec3(0.5, 0.6, 1.0);
+              c += tint * ghost * 0.08 * sun.z;
+            }
+          }
           c = mix(c, vec3(1.6), flash);
           // Soft-knee tone map so HDR beams and engines roll off instead of clipping hard.
           c = c / (1.0 + max(c - 1.0, 0.0) * 0.6);
@@ -109,10 +131,10 @@ export class Pipeline {
         }`,
     });
     this.outMat = new ShaderMaterial({
-      uniforms: { tMap: { value: null }, crt: { value: 1 }, res: { value: new Vector2() }, outRes: { value: new Vector2() } },
+      uniforms: { tMap: { value: null }, crt: { value: 1 }, ab: { value: 0 }, res: { value: new Vector2() }, outRes: { value: new Vector2() } },
       vertexShader: QUAD_VERT,
       fragmentShader: /* glsl */ `
-        uniform sampler2D tMap; uniform float crt; uniform vec2 res; uniform vec2 outRes;
+        uniform sampler2D tMap; uniform float crt; uniform float ab; uniform vec2 res; uniform vec2 outRes;
         varying vec2 vUv;
         void main() {
           vec3 c;
@@ -130,6 +152,12 @@ export class Pipeline {
             c *= pow(v.x * v.y * 16.0, 0.12);
           } else {
             c = texture2D(tMap, vUv).rgb;
+          }
+          if (ab > 0.001) {
+            // Impact pulse: radial chromatic split, strongest at the edges.
+            vec2 off = (vUv - 0.5) * ab * 0.02;
+            c.r = mix(c.r, texture2D(tMap, vUv + off).r, 0.85);
+            c.b = mix(c.b, texture2D(tMap, vUv - off).b, 0.85);
           }
           gl_FragColor = vec4(c, 1.0);
           #include <colorspace_fragment>
@@ -195,12 +223,15 @@ export class Pipeline {
     cu.bloom.value = this.settings.bloom ? 1 : 0;
     cu.dither.value = this.settings.dither ? 1 : 0;
     cu.flash.value = Math.min(0.7, this.flash);
+    (cu.sun.value as Vector3).set(this.sun.x, this.sun.y, this.sun.vis);
+    cu.aspect.value = this.width / this.height;
     (cu.res.value as Vector2).set(this.width, this.height);
     this.pass(this.compMat, this.compRT);
 
     const ou = this.outMat.uniforms;
     ou.tMap.value = this.compRT.texture;
     ou.crt.value = this.settings.crt ? 1 : 0;
+    ou.ab.value = this.aberration;
     (ou.res.value as Vector2).set(this.width, this.height);
     this.pass(this.outMat, null);
   }

@@ -22,7 +22,7 @@ export const SHOP_RULES = {
   /** Salvage bonus for clearing a wave, plus perWave * wave. */
   clearBonus: 6,
   clearPerWave: 2,
-  maxSlots: 9,
+  maxSlots: 11,
   /** Each extra slot bought costs this much more. */
   slotStep: 1.5,
 };
